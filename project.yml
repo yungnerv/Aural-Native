@@ -1,0 +1,29 @@
+name: Aural
+options:
+  bundleIdPrefix: local.aural
+  deploymentTarget:
+    iOS: '26.1'
+targets:
+  Aural:
+    type: application
+    platform: iOS
+    sources: [Aural]
+    info:
+      path: AuralInfo.plist
+      properties:
+        CFBundleDisplayName: Aural
+        UILaunchScreen: {}
+        UIBackgroundModes: [audio]
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.aural.player
+        MARKETING_VERSION: '0.1.1'
+        CURRENT_PROJECT_VERSION: '1'
+        SWIFT_VERSION: '5.0'
+        TARGETED_DEVICE_FAMILY: '1,2'
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGNING_ALLOWED: NO
+    scheme:
+      gatherCoverageData: false

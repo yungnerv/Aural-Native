@@ -1,0 +1,66 @@
+import SwiftUI
+import AVFoundation
+import MediaPlayer
+import UniformTypeIdentifiers
+import Combine
+import UIKit
+import ImageIO
+
+struct RootView: View {
+    @EnvironmentObject var store: MusicStore
+    @State private var tab = 0
+    @State private var category = "Albums"
+    @State private var search = ""
+    @State private var showFiles = false
+    @State private var showPlayer = false
+    var filtered: [Track] { store.tracks.filter { (tab != 1 || $0.favorite) && (search.isEmpty || "\($0.title) \($0.artist) \($0.album)".localizedCaseInsensitiveContains(search)) } }
+    var body: some View {
+        TabView(selection: $tab) {
+            NavigationStack { library }.tabItem { Label("Library", systemImage: "books.vertical") }.tag(0)
+            NavigationStack { trackList(filtered).navigationTitle("Favorites") }.tabItem { Label("Favorites", systemImage: "heart") }.tag(1)
+            NavigationStack { Form { Section("Aural Native") { Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.1") · Build \(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1")"); Text("Local playback · No accounts or streaming"); Text("Files are copied into Aural's private storage. Keep your originals.") }; Section("Library") { Text("\(store.tracks.count) tracks"); Button("Add music") { showFiles = true } } }.navigationTitle("Settings") }.tabItem { Label("Settings", systemImage: "gearshape") }.tag(2)
+        }
+        .tint(.mint)
+        .tabViewBottomAccessory(isEnabled: store.current != nil) { if let track = store.current { mini(track) } }
+        .fileImporter(isPresented: $showFiles, allowedContentTypes: [.audio], allowsMultipleSelection: true) { result in
+            switch result { case .success(let urls): Task { await store.importFiles(urls) }; case .failure(let error): store.message = error.localizedDescription }
+        }
+        .sheet(isPresented: $showPlayer) { PlayerView(progress: store.clock).environmentObject(store) }
+        .alert("Aural", isPresented: Binding(get: { store.message != nil }, set: { if !$0 { store.message = nil } })) { Button("OK") { store.message = nil } } message: { Text(store.message ?? "") }
+    }
+    var library: some View {
+        VStack(spacing: 0) {
+            Picker("Library view", selection: $category) { ForEach(["Albums","Artists","Songs"], id: \.self) { Text($0) } }.pickerStyle(.segmented).padding(.horizontal).padding(.vertical, 8)
+            if store.importing { ProgressView("Importing music…").padding(6) }
+            if filtered.isEmpty { ContentUnavailableView("No music", systemImage: "music.note.list", description: Text("Add audio files from Files to get started.")) }
+            else if category == "Songs" { trackList(filtered) }
+            else { groups }
+        }.navigationTitle("Library").searchable(text: $search, prompt: "Search your music").toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showFiles = true } label: { Label("Add music", systemImage: "plus") }.disabled(store.importing) } }
+    }
+    var groups: some View {
+        let grouped = Dictionary(grouping: filtered) { track in category == "Artists" ? track.artist : (track.album == "Unknown album" ? track.title + " · " + track.artist : track.album + " · " + track.artist) }
+        return ScrollView { LazyVGrid(columns: [GridItem(.adaptive(minimum: 148), spacing: 14)], spacing: 18) {
+            ForEach(grouped.keys.sorted(), id: \.self) { key in
+                if let songs = grouped[key], let first = songs.first {
+                    NavigationLink { trackList(songs).navigationTitle(category == "Artists" ? first.artist : (first.album == "Unknown album" ? first.title : first.album)) } label: {
+                        VStack(alignment: .leading, spacing: 5) { Cover(url: store.artworkURL(first)).aspectRatio(1, contentMode: .fit); Text(category == "Artists" ? first.artist : (first.album == "Unknown album" ? first.title : first.album)).font(.headline).lineLimit(2); Text(category == "Artists" ? "\(songs.count) songs" : first.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1) }.foregroundStyle(.primary)
+                    }.buttonStyle(.plain)
+                }
+            }
+        }.padding() }
+    }
+    func trackList(_ songs: [Track]) -> some View {
+        List(songs) { track in
+            Button { store.play(track, in: songs) } label: {
+                HStack(spacing: 12) { Cover(url: store.artworkURL(track)).frame(width: 46,height: 46); VStack(alignment: .leading, spacing: 4) { Text(track.title).foregroundStyle(.primary).lineLimit(1); Text(track.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1) }; Spacer(); if store.currentID == track.id { Image(systemName: "waveform").foregroundStyle(.mint) } }
+            }.buttonStyle(.plain).swipeActions { Button { store.favorite(track) } label: { Label("Favorite", systemImage: track.favorite ? "heart.slash" : "heart") }.tint(.mint) }.contextMenu { Button { store.favorite(track) } label: { Label(track.favorite ? "Remove favorite" : "Favorite", systemImage: "heart") }; Button(role: .destructive) { store.remove(track) } label: { Label("Remove from Aural", systemImage: "trash") } }
+        }.listStyle(.plain)
+    }
+    func mini(_ track: Track) -> some View {
+        HStack(spacing: 10) {
+            Button { showPlayer = true } label: { HStack(spacing: 10) { Cover(url: store.artworkURL(track)).frame(width: 40,height: 40); VStack(alignment: .leading,spacing: 3) { Text(track.title).font(.subheadline.weight(.semibold)).lineLimit(1); Text(track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1) }; Spacer(minLength: 0) }.foregroundStyle(.primary) }.buttonStyle(.plain)
+            Button { store.toggle() } label: { Image(systemName: store.playing ? "pause.fill" : "play.fill").frame(width:44,height:44) }.accessibilityLabel(store.playing ? "Pause" : "Play")
+            Button { store.advance(1) } label: { Image(systemName: "forward.end.fill").frame(width:44,height:44) }.accessibilityLabel("Next track")
+        }.padding(.horizontal, 12).foregroundStyle(.primary)
+    }
+}
