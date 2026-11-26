@@ -8,11 +8,12 @@ actor LibraryRepository {
         let tracks: [Track]
     }
     enum Failure: LocalizedError {
-        case notOpen, invalidIndex, unsupportedSchema(Int)
+        case notOpen, invalidIndex, changedOnDisk, unsupportedSchema(Int)
         var errorDescription: String? {
             switch self {
             case .notOpen: return "Library is not open. No changes were written."
             case .invalidIndex: return "Invalid library index. Existing data is protected."
+            case .changedOnDisk: return "The library index changed unexpectedly. Reopen the library before modifying it."
             case .unsupportedSchema(let version): return "Unsupported library schema \(version). Existing data is protected."
             }
         }
@@ -30,13 +31,18 @@ actor LibraryRepository {
 
     func load() throws -> [Track] {
         opened = false
+        previousBytes = nil
         committedNames.removeAll()
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         guard fm.fileExists(atPath: indexURL.path) else {
             // Missing index plus existing media is not a new empty library.
             let existing = try fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
             if !existing.isEmpty { throw Failure.invalidIndex }
-            previousBytes = nil
+            // Establish an empty index before allowing the first import. A crash
+            // while copying that first file must not make the library look lost.
+            let bytes = try encode([])
+            try bytes.write(to: indexURL, options: [.withoutOverwriting])
+            previousBytes = bytes
             opened = true
             return []
         }
@@ -57,15 +63,34 @@ actor LibraryRepository {
     }
 
     func commit(_ tracks: [Track]) throws {
-        guard opened else { throw Failure.notOpen }
+        let previous = try verifyCurrentIndex()
         try Self.validate(tracks)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        let bytes = try encoder.encode(Snapshot(schemaVersion: 1, tracks: tracks))
-        if let previousBytes { try previousBytes.write(to: backupURL, options: .atomic) }
+        let bytes = try encode(tracks)
+        try previous.write(to: backupURL, options: .atomic)
         try bytes.write(to: indexURL, options: .atomic)
         previousBytes = bytes
         committedNames = Self.names(tracks)
+    }
+
+    private func encode(_ tracks: [Track]) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try encoder.encode(Snapshot(schemaVersion: 1, tracks: tracks))
+    }
+
+    /// Fail closed if another writer or an external recovery changed the index
+    /// since it was opened. Never back up or overwrite unexpected disk contents.
+    private func verifyCurrentIndex() throws -> Data {
+        guard opened, let previousBytes else { throw Failure.notOpen }
+        do {
+            guard try Data(contentsOf: indexURL) == previousBytes else {
+                throw Failure.changedOnDisk
+            }
+            return previousBytes
+        } catch {
+            opened = false
+            throw Failure.changedOnDisk
+        }
     }
 
     func makeIndex(_ tracks: [Track]) -> LibraryIndex { LibraryIndex(tracks) }

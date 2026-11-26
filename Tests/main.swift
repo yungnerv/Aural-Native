@@ -80,6 +80,30 @@ func runTests() async throws {
     do { _ = try await orphanRepo.load(); fatalError("Missing index treated as empty despite existing media") } catch {}
     do { try await orphanRepo.commit([]); fatalError("Missing index overwritten") } catch {}
     check(FileManager.default.fileExists(atPath: orphanRoot.appendingPathComponent("song.mp3").path), "Orphan preserved")
-    print("PASS: model, queue, index, migration, atomic writes, corruption protection, digest")
+    // A fresh library gets an index before any media is imported.
+    let emptyRoot = root.appendingPathComponent("new-library", isDirectory: true)
+    let emptyRepo = LibraryRepository(root: emptyRoot)
+    let initial = try await emptyRepo.load()
+    check(initial.isEmpty, "New library empty")
+    let emptyIndex = emptyRoot.appendingPathComponent("library.json")
+    check(FileManager.default.fileExists(atPath: emptyIndex.path), "Index initialized before import")
+    let interruptedMedia = emptyRoot.appendingPathComponent("interrupted.mp3")
+    try Data("partial import".utf8).write(to: interruptedMedia)
+    let reopened = try await LibraryRepository(root: emptyRoot).load()
+    check(reopened.isEmpty, "Interrupted first import does not block reopen")
+    check(FileManager.default.fileExists(atPath: interruptedMedia.path), "Unreferenced media preserved")
+
+    // Two repository instances opening the same index must not overwrite each other.
+    let stale = LibraryRepository(root: emptyRoot)
+    _ = try await stale.load()
+    try await emptyRepo.commit([first])
+    let newerBytes = try Data(contentsOf: emptyIndex)
+    do { try await stale.commit([third]); fatalError("Stale write accepted") } catch {}
+    do { try await stale.removeMedia(first); fatalError("Stale deletion accepted") } catch {}
+    let afterStale = try Data(contentsOf: emptyIndex)
+    check(afterStale == newerBytes, "Stale operations preserve latest index")
+    let final = try await LibraryRepository(root: emptyRoot).load()
+    check(final == [first], "Latest library survives stale operations")
+    print("PASS: model, queue, index, migration, atomic writes, corruption protection, digest, initial index, stale writer protection")
 }
 try await runTests()

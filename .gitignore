@@ -9,3 +9,7 @@ AuralInfo.plist
 *.mobileprovision
 .build/
 *.xcresult
+
+# Python test and packaging caches
+__pycache__/
+*.py[cod]
