@@ -14,3 +14,4 @@ AuralInfo.plist
 __pycache__/
 *.py[cod]
 DerivedData-simulator/
+.tools/

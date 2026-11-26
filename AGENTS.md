@@ -12,3 +12,4 @@
 - Keep Xcode and XcodeGen versions explicit; CI actions use reviewed immutable commit SHAs. Upgrade deliberately, not accidentally.
 - Run the simulator integration/launch suite and review concurrency warnings. Swift 6 language-mode migration requires a separate verified change.
 - Recovery must validate the backup, preserve the damaged index, refuse unsupported newer schemas and require user confirmation.
+- Download XcodeGen only from the reviewed versioned release with a pinned SHA-256 checksum; do not rely on mutable Homebrew formula versions.
