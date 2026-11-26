@@ -116,7 +116,7 @@ final class NativeIntegrationTests: XCTestCase {
     func testObserverOwnerReleasesAfterClear() throws {
         let player = AVPlayer()
         var engine: PlaybackEngine? = PlaybackEngine(player: player)
-        weak var weakEngine = engine
+        weak let weakEngine = engine
         engine?.clear()
         engine = nil
         XCTAssertNil(weakEngine, "Observer callbacks must not retain their owner")
