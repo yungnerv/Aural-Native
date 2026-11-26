@@ -4,44 +4,58 @@ import UIKit
 
 /// Owns system metadata and command registration, not playback or library state.
 @MainActor final class NowPlayingController {
-    private var targets: [(MPRemoteCommand, Any)] = []
+    private let gate = RemoteCommandGate()
+    private var targets: [(MPRemoteCommand, Any, RemoteCommandGate.Command)] = []
     private var artworkTask: Task<Void, Never>?
     private var trackID: UUID?
     private var artwork: MPMediaItemArtwork?
     private var info: [String: Any] = [:]
 
-    init(play: @escaping () -> Void, pause: @escaping () -> Void,
-         next: @escaping () -> Void, previous: @escaping () -> Void,
-         seek: @escaping (Double) -> Void) {
+    init(play: @escaping @MainActor @Sendable () -> Void, pause: @escaping @MainActor @Sendable () -> Void,
+         next: @escaping @MainActor @Sendable () -> Void, previous: @escaping @MainActor @Sendable () -> Void,
+         seek: @escaping @MainActor @Sendable (Double) -> Void) {
         let remote = MPRemoteCommandCenter.shared()
-        func register(_ command: MPRemoteCommand, _ action: @escaping () -> Void) {
+        let gate = self.gate
+        func register(_ command: MPRemoteCommand, _ kind: RemoteCommandGate.Command,
+                      _ action: @escaping @MainActor @Sendable () -> Void) {
             let token = command.addTarget { _ in
-                Task { @MainActor in action() }
+                guard let id = gate.accept(kind) else { return .commandFailed }
+                Task { @MainActor in
+                    guard gate.isCurrent(id, command: kind) else { return }
+                    action()
+                }
                 return .success
             }
-            targets.append((command, token))
+            targets.append((command, token, kind))
             command.isEnabled = false
         }
-        register(remote.playCommand, play)
-        register(remote.pauseCommand, pause)
-        register(remote.nextTrackCommand, next)
-        register(remote.previousTrackCommand, previous)
+        register(remote.playCommand, .play, play)
+        register(remote.pauseCommand, .pause, pause)
+        register(remote.nextTrackCommand, .next, next)
+        register(remote.previousTrackCommand, .previous, previous)
         let token = remote.changePlaybackPositionCommand.addTarget { event in
-            guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            guard let event = event as? MPChangePlaybackPositionCommandEvent,
+                  event.positionTime.isFinite, event.positionTime >= 0,
+                  let id = gate.accept(.seek) else { return .commandFailed }
             let seconds = event.positionTime
-            Task { @MainActor in seek(seconds) }
+            Task { @MainActor in
+                guard gate.isCurrent(id, command: .seek) else { return }
+                seek(seconds)
+            }
             return .success
         }
-        targets.append((remote.changePlaybackPositionCommand, token))
+        targets.append((remote.changePlaybackPositionCommand, token, .seek))
         remote.changePlaybackPositionCommand.isEnabled = false
     }
 
     deinit {
         artworkTask?.cancel()
-        for (command, token) in targets { command.removeTarget(token) }
+        gate.update(trackID: nil, available: [])
+        for (command, token, _) in targets { command.removeTarget(token) }
     }
 
-    func update(track: Track, elapsed: Double, duration: Double, playing: Bool, artworkURL: URL?) {
+    func update(track: Track, elapsed: Double, duration: Double, playing: Bool,
+                available: Set<RemoteCommandGate.Command>, artworkURL: URL?) {
         if trackID != track.id {
             trackID = track.id
             artworkTask?.cancel()
@@ -63,8 +77,8 @@ import UIKit
             MPNowPlayingInfoPropertyElapsedPlaybackTime: elapsed,
             MPNowPlayingInfoPropertyPlaybackRate: playing ? 1.0 : 0.0
         ]
-        for (command, _) in targets { command.isEnabled = true }
-        MPRemoteCommandCenter.shared().changePlaybackPositionCommand.isEnabled = duration > 0
+        gate.update(trackID: track.id, available: available)
+        for (command, _, kind) in targets { command.isEnabled = available.contains(kind) }
         publish()
     }
 
@@ -79,7 +93,8 @@ import UIKit
         trackID = nil
         artwork = nil
         info = [:]
-        for (command, _) in targets { command.isEnabled = false }
+        gate.update(trackID: nil, available: [])
+        for (command, _, _) in targets { command.isEnabled = false }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
 }

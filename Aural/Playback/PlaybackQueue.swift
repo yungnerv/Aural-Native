@@ -1,6 +1,6 @@
 import Foundation
 
-struct PlaybackQueue {
+struct PlaybackQueue: Sendable {
     private(set) var original: [UUID] = []
     private(set) var order: [UUID] = []
 
@@ -18,6 +18,11 @@ struct PlaybackQueue {
     mutating func remove(_ id: UUID) {
         original.removeAll { $0 == id }
         order.removeAll { $0 == id }
+    }
+
+    mutating func retain(_ allowed: Set<UUID>) {
+        original = original.filter { allowed.contains($0) }
+        order = order.filter { allowed.contains($0) }
     }
 
     func adjacent(to id: UUID, direction: Int) -> UUID? {

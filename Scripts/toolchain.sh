@@ -7,4 +7,4 @@ xcodebuild -version
 command -v xcodegen >/dev/null || brew install xcodegen
 GEN_VERSION=$(xcodegen --version)
 echo "$GEN_VERSION"
-[[ "$GEN_VERSION" == *"2.46.0"* ]] || { echo "Expected XcodeGen 2.46.0; review the toolchain update before building" >&2; exit 1; }
+[[ "$GEN_VERSION" == *"2.48.0"* ]] || { echo "Expected XcodeGen 2.48.0; review the toolchain update before building" >&2; exit 1; }

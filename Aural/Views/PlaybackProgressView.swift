@@ -23,8 +23,8 @@ struct PlaybackProgressView: View {
                 in: 0...upperBound,
                 onEditingChanged: { active in
                     if active {
-                        dragTrackID = trackID
                         seekValue = displayedValue
+                        dragTrackID = trackID
                     } else {
                         if dragTrackID == trackID { seek(trackID, displayedValue) }
                         dragTrackID = nil

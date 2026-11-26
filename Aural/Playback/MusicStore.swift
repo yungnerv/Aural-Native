@@ -41,19 +41,21 @@ import Combine
         repository = LibraryRepository(root: root)
         engine.onProgress = { [weak self] elapsed, duration in
             guard let self, self.currentID != nil else { return }
+            let crossedRestartThreshold = (self.elapsed > 3) != (elapsed > 3)
             self.elapsed = elapsed
+            var changed = crossedRestartThreshold
             if let duration, self.duration != duration {
                 self.duration = duration
-                self.updateSystem()
+                changed = true
             }
+            if changed { self.updateSystem() }
         }
         engine.onState = { [weak self] wanted, audible in
             guard let self else { return }
+            let changed = self.playing != wanted || self.actualPlaying != audible
             if self.playing != wanted { self.playing = wanted }
-            if self.actualPlaying != audible {
-                self.actualPlaying = audible
-                self.updateSystem()
-            }
+            if self.actualPlaying != audible { self.actualPlaying = audible }
+            if changed { self.updateSystem() }
         }
         engine.onEnd = { [weak self] in
             guard let self else { return }
@@ -129,6 +131,7 @@ import Combine
     private func apply(_ next: [Track]) async {
         index = await repository.makeIndex(next)
         tracks = next
+        queue.retain(Set(index.byID.keys))
         if let currentID, index.byID[currentID] == nil {
             self.currentID = nil
             engine.clear()
@@ -139,6 +142,7 @@ import Combine
             system?.clear()
             queue.remove(currentID)
         }
+        updateSystem()
     }
 
     private func commit(_ next: [Track]) async throws {
@@ -203,9 +207,10 @@ import Combine
     }
 
     func play(_ track: Track, in list: [Track]) {
-        guard let selected = index.byID[track.id] else { return }
+        guard libraryReady, let selected = index.byID[track.id] else { return }
         if load(selected) {
             queue.replace(list.map(\.id).filter { index.byID[$0] != nil }, current: selected.id, shuffled: shuffle)
+            updateSystem()
         }
     }
 
@@ -277,11 +282,16 @@ import Combine
     func toggleShuffle() {
         shuffle.toggle()
         if let currentID { queue.setShuffle(shuffle, current: currentID) }
+        updateSystem()
     }
 
     private func updateSystem() {
         guard let current else { return }
+        var available: Set<RemoteCommandGate.Command> = [playing ? .pause : .play]
+        if queue.adjacent(to: current.id, direction: 1) != nil { available.insert(.next) }
+        if elapsed > 3 || queue.adjacent(to: current.id, direction: -1) != nil { available.insert(.previous) }
+        if duration > 0 { available.insert(.seek) }
         system?.update(track: current, elapsed: elapsed, duration: duration,
-                       playing: actualPlaying, artworkURL: artworkURL(current))
+                       playing: actualPlaying, available: available, artworkURL: artworkURL(current))
     }
 }

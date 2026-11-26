@@ -1,6 +1,6 @@
 import Foundation
 
-struct Track: Codable, Identifiable, Hashable {
+struct Track: Codable, Identifiable, Hashable, Sendable {
     var id = UUID()
     var file: String
     var title: String

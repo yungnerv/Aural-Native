@@ -13,7 +13,7 @@ struct RootView: View {
     var body: some View {
         TabView(selection: $tab) {
             NavigationStack { library }.tabItem { Label("Library", systemImage: "books.vertical") }.tag(0)
-            NavigationStack { trackList(store.index.filter("", favoritesOnly: true)).navigationTitle("Favorites") }.tabItem { Label("Favorites", systemImage: "heart") }.tag(1)
+            NavigationStack { favorites.navigationTitle("Favorites") }.tabItem { Label("Favorites", systemImage: "heart") }.tag(1)
             NavigationStack { Form { Section("Aural Native") { Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown") · Build \(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1")"); Text("Local playback · No accounts or streaming"); Text("Files are copied into Aural's private storage. Keep your originals.") }; Section("Library") { Text("\(store.tracks.count) tracks"); Button("Add music") { showFiles = true }.disabled(!store.libraryReady || store.mutationBusy) } }.navigationTitle("Settings") }.tabItem { Label("Settings", systemImage: "gearshape") }.tag(2)
         }
         .tint(.mint)
@@ -54,6 +54,19 @@ struct RootView: View {
             else { groups }
         }.navigationTitle("Library").searchable(text: $search, prompt: "Search your music").toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showFiles = true } label: { Label("Add music", systemImage: "plus") }.disabled(!store.libraryReady || store.mutationBusy) } }
     }
+    private var favorites: some View {
+        Group {
+            if store.libraryLoading {
+                ProgressView("Opening library…")
+            } else if !store.libraryReady {
+                ContentUnavailableView("Library unavailable", systemImage: "exclamationmark.triangle",
+                                       description: Text("Reopen the library from the Library tab."))
+            } else {
+                trackList(store.index.filter("", favoritesOnly: true))
+            }
+        }
+    }
+
     var groups: some View {
         let groups = store.index.groups(category: category, query: search)
         return ScrollView {
@@ -61,7 +74,13 @@ struct RootView: View {
                 ForEach(groups) { group in
                     if let first = group.tracks.first {
                         NavigationLink {
-                            trackList(group.tracks.compactMap { store.index.byID[$0.id] }).navigationTitle(group.title)
+                            Group {
+                                if store.libraryReady, let liveGroup = store.index.group(for: group.id) {
+                                    trackList(liveGroup.tracks).navigationTitle(liveGroup.title)
+                                } else {
+                                    ContentUnavailableView("Group unavailable", systemImage: "music.note.list")
+                                }
+                            }
                         } label: {
                             VStack(alignment: .leading, spacing: 5) {
                                 Cover(url: store.artworkURL(first)).aspectRatio(1, contentMode: .fit)

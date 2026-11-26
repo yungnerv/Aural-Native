@@ -3,12 +3,12 @@ import Foundation
 /// Single-process, single-writer persistence. Every mutation verifies the last
 /// committed index. Unreadable data is never implicitly replaced or deleted.
 actor LibraryRepository {
-    struct Snapshot: Codable {
+    struct Snapshot: Codable, Sendable {
         let schemaVersion: Int
         let tracks: [Track]
     }
 
-    struct RecoveryReport: Equatable {
+    struct RecoveryReport: Equatable, Sendable {
         let tracks: Int
         let missingMedia: Int
         let unreferencedFiles: Int

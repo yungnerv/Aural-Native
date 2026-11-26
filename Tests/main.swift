@@ -21,11 +21,23 @@ func runTests() async throws {
     queue.remove(second.id)
     check(queue.adjacent(to: first.id, direction: 1) == third.id, "Queue removal")
     check(queue.adjacent(to: third.id, direction: 1) == nil, "Queue end")
+    queue.retain([third.id])
+    check(queue.order == [third.id] && queue.original == [third.id], "Queue prunes unavailable tracks")
 
     let index = LibraryIndex([first, second, third])
     check(index.byID[first.id] == first && index.filter("ARTIST").count == 3, "Index and search")
     check(index.filter("", favoritesOnly: true) == [first], "Favorites")
     check(index.groups(category: "Albums", query: "").count == 3, "Distinct untagged singles")
+    let artistGroup = index.groups(category: "Artists", query: "").first!
+    let updatedIndex = LibraryIndex([first, third])
+    check(updatedIndex.group(for: artistGroup.id)?.tracks == [first, third], "Navigation group resolves live contents")
+    let remote = RemoteCommandGate()
+    check(remote.accept(.play) == nil, "No remote command without a track")
+    remote.update(trackID: first.id, available: [.play, .seek])
+    check(remote.accept(.play) == first.id && remote.accept(.next) == nil, "Remote command capability check")
+    remote.update(trackID: second.id, available: [.play])
+    check(!remote.isCurrent(first.id, command: .play), "Stale remote command rejected")
+    check(remote.accept(.seek) == nil, "Unavailable seek rejected")
 
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
     defer { try? FileManager.default.removeItem(at: root) }

@@ -13,3 +13,4 @@ AuralInfo.plist
 # Python test and packaging caches
 __pycache__/
 *.py[cod]
+DerivedData-simulator/

@@ -6,6 +6,8 @@
 - Case-folded filename collision checks and directory/symlink deletion guards.
 - Separate Favorites filtering; visible busy/recovery states.
 - Independent stale-delete, recovery, path safety and 10,000-track metadata tests.
+- Track-bound scrub gestures, live navigation group lookup, queue pruning and remote command availability checks.
+- Media-services reset recovery, simulator integration and launch tests, tool-version validation and pinned CI action commits.
 
 ## 0.2.0 — Foundation hardening
 - Explicit bundle version keys and diagnostics; modern CI actions and separate scripts.
