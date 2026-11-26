@@ -1,0 +1,377 @@
+name: Build Aural Native
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - name: Generate and compile native app
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p Native/Aural/Assets.xcassets/AppIcon.appiconset
+          cd Native
+          cat > Aural/Assets.xcassets/AppIcon.appiconset/Contents.json <<'AURAL_SOURCE'
+          {"images": [{"filename": "icon.png", "idiom": "universal", "platform": "ios", "size": "1024x1024"}], "info": {"author": "xcode", "version": 1}}
+          AURAL_SOURCE
+          python3 - <<'AURAL_ICON'
+          import base64, pathlib
+          pathlib.Path('Aural/Assets.xcassets/AppIcon.appiconset/icon.png').write_bytes(base64.b64decode('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m8HgyaOPDHaOx8O53OdnvvrE2vLqcG48mpvLOZec3RUAsO3/vbAFCGDbu7zjvx42dd2cO3Fyc7p+45GX/bv/5/9y++tft7mxEUK48eW37ty7mPvcte1zjgS99NtLKXXTpCpdeHblma8+EUIYz8098tnP//f/9XeeOfb4eLhjz+FDXdd209ZdAQDbnRUAgO1tazTf9/10Y3P27DRVKcV0+NYj97z1La/+8R+5/bbXdaE9d/HUZG3j7DMnYkwppRCeN40fQwgh5pxLyYPh6NZX37Vn/mAdmtHCjuOPHcsfzytfP332meO5z4PhsB4OqqraqgYvPsB2VI3HO7wKANtUKSXGGOPWOT/dtNvsc3fwppe+/T//wpv/5/9p6fDBzX59lid925acY4yprlJVpapK6Tn/q6rL/19VdZVS6mK73q6NF+ZfeudtO3btfOaRx1fOncmlr1NT1dU3AiBaBwDYhqwAAGxjKaW+70MoO3bvvPmuG/q+m0w377j3h+5561tufdldyxfPnv368bpu6mGTqirV9Ten/r9t6L61kpBz3ry4vnZutevaPYcP3fqyu/Jb84nHnhx9bsdoOK6q+uwzx9fPXwghbp0O5C0A2HbcAwCwfX+Eh6qqN9cu9qF/xWtf/eb/9DO33H37ZLJZV80NLz8yt3thur452dhIKW0dDPrP/Kpbh37mnEdzc8Md443VteNfPdb17Wg0fvLoI5/8r3/46N9+sQrVeGG+77sgAQC2GysAANtTKamumqa5MJ3O8rTvupvvvv0N9/7YNORTF56eXtxcOXW2buqtR3r9Dw3TY4yxrqpQzyaTjbWLddO89AdeeXDnTcOQSgh910021wdpuHNpsYSc294NwQDbS/ISAGzD0X8oIcSY6qaJKYUQJuub043NaciTsNHN2pQufaiE8L1M0m99/ZTqpkkpdbN2EjamIU83Nifrm+Hyh2L8Xr8+AC8cNwEDbD8xxVRVs83JxfMXYowHb3npD/ybf33rD97V7GrW185PLq6nqkp19X3OzG89WCD3ebax2XbTze7ihWdX1lfPr69emFxY37i4XnJuBgNvB4AAAOAqKqWkKtV1c3Flddpt7r/xJW//1V9483/8mb03Hmqn0xBiqquUrti2nBhDqqtQQjub7dq358gP3rVj986nv/zYyrnToSs7di5s3THgRCAAAQDAVZFSyn0O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KiWkqqrqKl+rfTillKquYkqzzenxpx//0l9+9pHP/u35Z8/VddMMB6XkYCUAQAAAcCWG3qGUkuo0HI3XV84/+eVHVk6e3Xvjwf033Ziqqp1OU0whXvVryH0/nJtrhoOnH370T/5fv///+//80fLx04PRqKqrrSv0RgFc52wBAtg2cs5VUw9H4wvLy09/5dHHHvpCKWXPwsHBeNjO2tzncFUXAWLMfW5n7WA83LNwsJTy2ENfePorj15YXh6OxlVT55y9RwACAIArOAKPoYRQSgwxhDDcMTeam6tDk/vctW0pOYZwtRYBYoghlJK7ts19rkMzmpsb7pi79JFrex8CAN8PW4AAtpMSSgihlNIMBov7983v2d3sGowX5ud2zqeUutls62aBK/99S8l9PxyP5xd3lRKefvKxo3/52af+/uGLK+frpqnqOufeuwMgAAC4GhFQUlUNhsMLZ88dO/ql9ZULL73jthsO3tKlfuPCWkopVVd4dTfGmPvctd380u7F8d4TX3vyj3/79z75B3947usnB8NhvHwKEAACAICrMf4vVV3VdXPh3PLKubPnTy/vWNo5XpqPMcYYUqpy3toLFK/U98s5p5Riin3bnnrm6c997P/7yf/3/3X82BN51u/YuTOEknvPAgMQAABcHVtD7VJKTLGK9WTt4jOPPX7+zLk9Nxzae+OhUsp0YzNVVbwi6wBbN/5Op4PRcDAeff2Rr/7p7/7+X3zoI8vHTzX1cDAexZRKNvkPsJ24CRhg+ym59F03nBvvPXQw5/zM448//Fd/07XtgV037dl3aLSwI6WUu76U8r2vA8RYSsldn1IaLezYs+/QgV03dW378F/9zTOPP55z3nvo4HBu3HedAAAQAABcZc85k6fkHEIY7RgP58bDkEZhrh40OV/60Pd4LtDW18+5a9uccz1oRmFuGNJwbjzaMQ6XP3R1zx0C4OqovQQA27MBYu5zG9pmOEyhrur6qaOPxBAmk826am54+ZGFPbun65uTjY2UUkzpn79Hv5RS+pxzHs3NLewZb6yufe0fvvJEf3Q0Gj919JGqrkfjHVWo2vbqP3kAAAEAwHOG6iH3fT0c1KGc/frxT37wD/u+m0w377j3h+7/jV8+dOCly+3Z6bPn6rqph02qqphS+Mef1BtjyTn3fTdtu66d371713DpzOozn/qDDz/8ub8ZDcdVVZ995vhwOAoh5r538g+AAADgmso5V1UVY1xfvbBy8uzm7GIIYbK6fvi2W1KVFg8d2PeSG1JKs8mknc76rgvx8lMCnjt23/qFUkIpVV0Px6PB3lHOOef8xONfeujjD37hE3/+zJOPhxDGg/nBeFg3TSklZyf/AGxLTgEC2Mbi5QF9KaXkHHJo6sFkbf3pRx9bX77wkttf9tKDr2jq4Wa33k5m7Wxactl6pld+jpJzyaXv+r7vUqqa0WBxbt98s+vppx774/f83if/j/9r+ZlTVapTqOqmSXVt3A+wrVkBANjeLs3cV1WzML+wd7Gum3MnTp544thDH3vwhtuOTNbWNzc2Qgg3vvzWfTcezn3u2jbG+Ly9+6WUUuqmSVW68OzKE1/80hPhS+O5uUc++/mHPvbgiWPHxsMd+264oevabtrmvi/Z1n+AbSwuLu33KgC8GH6gxxhTSilNNjamG5tzuxZufPmtqUqb041XvPY19//6L915x72zMF2brdZVHdM3R/All67vFga7B2H45Yc/95Hf/N1H//YL4+Fc7vMzX31i4/zacG48mpu7tFZQbPwH2N6sAAC8SJRSStf3oRuMRnPz813XHvv7L29M1kIIswubt9x9ezubzSbTiyur1bcFQN9384u7B6Phw59+6Oin/uprX300hDA3Whgv7Fjcv6/runY2i1uHgwKwzVkBAHixdcDWoZ9937fT2XRjs4S8c2npwC03LSztzjn3szbG9LyhfAml5GrQpJTWlldPP/n0heXlGNJwbtwMB1VVXbrBwLYfAAEAwPWcAamqqqaOIU43N9dXz8/yNISQQlW+7fzOGGIOfQhhkIY7du8ajscllL7t7PgHePGxBQjgxSjGUkru+1JyCLHkUg8GsUshhBhT+A4H+MdScgihquuSSzubhVBKLqUUo38AAQDA9lBKKX0JpaQq7di1c2vffynfYSd/CZfG+SWXvuty1xn3AwgAALanGEsp/TfH9N/tGJ/LzwMz6w8gAADY7rYeF/CPf4pXCeBfguQlAAAAAQAAAAgAAABAAAAAAAIAAAAQAAAAgAAAAAAEAAAAIAAAAAABAAAACAAAAEAAAACAAAAAAAQAAAAgAAAAAAEAAAAIAAAAQAAAAAACAAAAEAAAAIAAAAAABAAAACAAAABAAAAAAAIAAAAQAAAAgAAAAAAEAAAAIAAAAAABAAAACAAAAEAAAAAAAgAAABAAAAAgAAAAAAEAAAAIAAAAQAAAAAACAAAAEAAAAIAAAAAABAAAACAAAAAAAQAAAAgAAAAQAAAAgAAAAAAEAAAAIAAAAAABAAAACAAAAEAAAAAAAgAAABAAAACAAAAAAAQAAAAgAAAAQAAAAAACAAAAEAAAAIAAAAAABAAAACAAAAAAAQAAAAgAAABAAAAAAAIAAAAQAAAAIAAAAAABAAAACAAAAEAAAAAAAgAAABAAAACAAAAAAAQAAAAgAAAAAAEAAAAIAAAAEAAAAIAAAAAABAAAACAAAAAAAQAAAAgAAABAAAAAAAIAAAAQAAAAgAAAAAAEAAAACAAAAEAAAAAAAgAAABAAAACAAAAAAAQAAAAgAAAAAAEAAAAIAAAAQAAAAAACAAAABAAAACAAAAAAAQAAAAgAAABAAAAAAAIAAAAQAAAAgAAAAAAEAAAAIAAAAAABAAAACAAAABAAAACAAAAAAAQAAAAgAAAAAAEAAAAIAAAAQAAAAAACAAAAEAAAAIAAAAAABAAAAAgAAABAAAAAAAIAAAAQAAAAgAAAAAAEAAAAIAAAAAABAAAACAAAAEAAAAAAAgAAAAQAAAAgAAAAAAEAAAAIAAAAQAAAAAACAAAAEAAAAIAAAAAABAAAACAAAAAAAQAAAAIAAAAQAAAAgAAAAAAEAAAAIAAAAAABAAAACAAAAEAAAAAAAgAAABAAAACAAAAAAAQAAAAIAAAAQAAAAAACAAAAEAAAAIAAAAAABAAAACAAAAAAAQAAAAgAAABAAAAAAAIAAAAEAAAAIAAAAAABAAAACAAAAEAAAAAAAgAAABAAAACAAAAAAAQAAAAgAAAAAAEAAAACAAAAEAAAAIAAAAAABAAAACAAAAAAAQAAAAgAAABAAAAAAAIAAAAQAAAAgAAAAAABAAAACAAAAEAAAAAAAgAAABAAAACAAAAAAAQAAAAgAAAAAAEAAAAIAAAAQAAAAIAAAAAABAAAACAAAAAAAQAAAAgAAABAAAAAAAIAAAAQAAAAgAAAAAAEAAAAIAAAAAABAAAAAgAAABAAAACAAAAAAAQAAAAgAAAAAAEAAAAIAAAAQAAAAAACAAAAEAAAAIAAAAAAAQAAAAgAAABAAAAAAAIAAAAQAAAAgAAAAAAEAAAAIAAAAAABAAAACAAAAEAAAACAAAAAAAQAAAAgAAAAAAEAAAAIAAAAQAAAAAACAAAAEAAAAIAAAAAABAAAACAAAABAAAAAAAIAAAAQAAAAgAAAAAAEAAAAIAAAAAABAAAACAAAAEAAAAAAAgAAABAAAAAgALwEAAAgAAAAAAEAAAAIAAAAQAAAAAACAAAAEAAAAIAAAAAABAAAACAAAAAAAQAAAAgAAAAQAAAAgAAAAAAEAAAAIAAAAAABAAAACAAAAEAAAAAAAgAAABAAAACAAAAAAAQAAAAIAAAAQAAAAAACAAAA2Gb+/4b/qBCIvhfDAAAAAElFTkSuQmCC'))
+          AURAL_ICON
+          cat > Aural/Assets.xcassets/Contents.json <<'AURAL_SOURCE'
+          {"info": {"author": "xcode", "version": 1}}
+          AURAL_SOURCE
+          cat > Aural/Aural.swift <<'AURAL_SOURCE'
+          import SwiftUI
+          import AVFoundation
+          import MediaPlayer
+          import UniformTypeIdentifiers
+          import Combine
+          import UIKit
+          import ImageIO
+          
+          struct Track: Codable, Identifiable, Hashable {
+              var id = UUID()
+              var file: String
+              var title: String
+              var artist: String
+              var album: String
+              var duration: Double
+              var favorite = false
+              var artwork: String? = nil
+              var format: String { URL(fileURLWithPath: file).pathExtension.uppercased() }
+          }
+          
+          @MainActor final class PlaybackClock: ObservableObject {
+              @Published var elapsed = 0.0
+              @Published var duration = 0.0
+          }
+          
+          @MainActor final class MusicStore: ObservableObject {
+              @Published var tracks: [Track] = []
+              @Published var currentID: UUID?
+              @Published var playing = false
+              let clock = PlaybackClock()
+              var elapsed: Double { get { clock.elapsed } set { if clock.elapsed != newValue { clock.elapsed = newValue } } }
+              var duration: Double { get { clock.duration } set { if clock.duration != newValue { clock.duration = newValue } } }
+              @Published var importing = false
+              @Published var message: String?
+              @Published var shuffle = false
+              @Published var repeatOne = false
+              private let player = AVPlayer()
+              private var queue: [UUID] = []
+              private var timeObserver: Any?
+              private var endObserver: NSObjectProtocol?
+              private var stateObserver: NSKeyValueObservation?
+              private var itemObserver: NSKeyValueObservation?
+              private var failureObserver: NSObjectProtocol?
+              private let root: URL
+              private let fm = FileManager.default
+              var current: Track? { tracks.first { $0.id == currentID } }
+              init() {
+                  root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("AuralLibrary", isDirectory: true)
+                  do {
+                      try fm.createDirectory(at: root, withIntermediateDirectories: true)
+                      let index = root.appendingPathComponent("library.json")
+                      if fm.fileExists(atPath: index.path) { tracks = try JSONDecoder().decode([Track].self, from: Data(contentsOf: index)) }
+                  } catch { message = "Library could not be opened: \(error.localizedDescription)" }
+                  timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main) { [weak self] time in
+                      Task { @MainActor in
+                          guard let self else { return }
+                          self.elapsed = time.seconds.isFinite ? max(0,time.seconds) : 0
+                          if let value = self.player.currentItem?.duration.seconds, value.isFinite, value > 0 { self.duration = value }
+                      }
+                  }
+                  endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: nil, queue: .main) { [weak self] note in
+                      Task { @MainActor in
+                          guard let self, (note.object as? AVPlayerItem) === self.player.currentItem else { return }
+                          if self.repeatOne { self.seek(0); self.player.play() } else { self.advance(1, automatic: true) }
+                      }
+                  }
+                  failureObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemFailedToPlayToEndTime, object: nil, queue: .main) { [weak self] note in
+                      Task { @MainActor in
+                          guard let self, (note.object as? AVPlayerItem) === self.player.currentItem else { return }
+                          self.player.pause(); self.message = "Playback failed. Try another track."
+                      }
+                  }
+                  stateObserver = player.observe(\.timeControlStatus, options: [.initial,.new]) { [weak self] _,_ in
+                      Task { @MainActor in
+                          guard let self else { return }
+                          self.playing = self.player.timeControlStatus == .playing
+                          self.updateSystem()
+                      }
+                  }
+                  let remote = MPRemoteCommandCenter.shared()
+                  remote.playCommand.addTarget { [weak self] _ in Task { @MainActor in self?.resume() }; return .success }
+                  remote.pauseCommand.addTarget { [weak self] _ in Task { @MainActor in self?.player.pause() }; return .success }
+                  remote.nextTrackCommand.addTarget { [weak self] _ in Task { @MainActor in self?.advance(1) }; return .success }
+                  remote.previousTrackCommand.addTarget { [weak self] _ in Task { @MainActor in self?.advance(-1) }; return .success }
+                  remote.changePlaybackPositionCommand.addTarget { [weak self] event in
+                      guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+                      let seconds = event.positionTime
+                      Task { @MainActor in self?.seek(seconds) }; return .success
+                  }
+              }
+              func save() { do { try JSONEncoder().encode(tracks).write(to: root.appendingPathComponent("library.json"), options: .atomic) } catch { message = "Could not save library: \(error.localizedDescription)" } }
+              func artworkURL(_ track: Track) -> URL? { track.artwork.map { root.appendingPathComponent($0) } }
+              func importFiles(_ urls: [URL]) async {
+                  guard !importing else { return }; importing = true; defer { importing = false }
+                  let base = root
+                  var errors: [String] = []
+                  for url in urls {
+                      do {
+                          let track = try await Task.detached(priority: .userInitiated) { try await Self.readFile(url, into: base) }.value
+                          tracks.append(track); save()
+                      } catch { errors.append("\(url.lastPathComponent): \(error.localizedDescription)") }
+                  }
+                  if !errors.isEmpty { message = errors.joined(separator: "\n") }
+              }
+              nonisolated private static func readFile(_ url: URL, into root: URL) async throws -> Track {
+                  let fm = FileManager.default
+                  let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }
+                  let id = UUID()
+                  let name = id.uuidString + "." + url.pathExtension.lowercased()
+                  let destination = root.appendingPathComponent(name)
+                  var artName: String?
+                  do {
+                      var coordinationError: NSError?
+                      var copyError: Error?
+                      NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinationError) { readable in
+                          do { try fm.copyItem(at: readable, to: destination) } catch { copyError = error }
+                      }
+                      if let coordinationError { throw coordinationError }; if let copyError { throw copyError }
+                      let asset = AVURLAsset(url: destination)
+                      let playable = try await asset.load(.isPlayable)
+                      let audio = try await asset.loadTracks(withMediaType: .audio)
+                      guard playable, !audio.isEmpty else { throw NSError(domain: "Aural", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unsupported audio format or damaged file"]) }
+                      let d = try await asset.load(.duration).seconds
+                      let metadata = (try? await asset.load(.commonMetadata)) ?? []
+                      func value(_ key: AVMetadataKey) async -> String? {
+                          guard let item = AVMetadataItem.metadataItems(from: metadata, withKey: key, keySpace: .common).first else { return nil }
+                          return try? await item.load(.stringValue)
+                      }
+                      let filename = url.deletingPathExtension().lastPathComponent
+                      let parts = filename.components(separatedBy: " - ")
+                      let title = await value(.commonKeyTitle) ?? (parts.count == 2 ? parts[1] : filename)
+                      let artist = await value(.commonKeyArtist) ?? (parts.count == 2 ? parts[0] : "Unknown artist")
+                      let album = await value(.commonKeyAlbumName) ?? "Unknown album"
+                      if let item = AVMetadataItem.metadataItems(from: metadata, withKey: AVMetadataKey.commonKeyArtwork, keySpace: .common).first,
+                         let data = try? await item.load(.dataValue), data.count <= 20_000_000 {
+                          // Downsample off the main actor using ImageIO, not a full-size decoded bitmap.
+                          if let jpeg = thumbnail(data) {
+                              let art = id.uuidString + ".jpg"
+                              try jpeg.write(to: root.appendingPathComponent(art), options: .atomic); artName = art
+                          }
+                      }
+                      return Track(id: id, file: name, title: title, artist: artist, album: album, duration: d.isFinite ? max(0,d) : 0, artwork: artName)
+                  } catch { try? fm.removeItem(at: destination); if let artName { try? fm.removeItem(at: root.appendingPathComponent(artName)) }; throw error }
+              }
+              nonisolated private static func thumbnail(_ data: Data) -> Data? {
+                  guard let source = CGImageSourceCreateWithData(data as CFData, nil), let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 1000, kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary) else { return nil }
+                  let output = NSMutableData()
+                  guard let dest = CGImageDestinationCreateWithData(output, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+                  CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.88] as CFDictionary)
+                  guard CGImageDestinationFinalize(dest) else { return nil }; return output as Data
+              }
+              func play(_ track: Track, in list: [Track]) {
+                  queue = list.map(\.id); if shuffle { queue = [track.id] + queue.filter { $0 != track.id }.shuffled() }; load(track)
+              }
+              private func load(_ track: Track) {
+                  do { try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default); try AVAudioSession.sharedInstance().setActive(true) }
+                  catch { message = error.localizedDescription; return }
+                  player.pause(); currentID = track.id; elapsed = 0; duration = track.duration
+                  let item = AVPlayerItem(url: root.appendingPathComponent(track.file)); player.replaceCurrentItem(with: item)
+                  itemObserver = item.observe(\.status, options: [.initial,.new]) { [weak self] item, _ in
+                      Task { @MainActor in
+                          guard let self, self.player.currentItem === item else { return }
+                          if item.status == .failed { self.player.pause(); self.message = item.error?.localizedDescription ?? "Unable to play this file." }
+                      }
+                  }
+                  player.play(); updateSystem()
+              }
+              func resume() { guard currentID != nil else { return }; do { try AVAudioSession.sharedInstance().setActive(true); player.play() } catch { message = error.localizedDescription } }
+              func toggle() { if player.rate != 0 { player.pause() } else { resume() } }
+              func seek(_ seconds: Double) { guard duration > 0, seconds.isFinite else { return }; let time = min(duration,max(0,seconds)); player.seek(to: CMTime(seconds: time, preferredTimescale: 600)); elapsed = time; updateSystem() }
+              func advance(_ direction: Int, automatic: Bool = false) {
+                  guard let currentID, let index = queue.firstIndex(of: currentID) else { return }
+                  if direction < 0, elapsed > 3 { seek(0); return }
+                  let next = index + direction
+                  if !queue.indices.contains(next) { if automatic { player.pause(); seek(0) }; return }
+                  if let track = tracks.first(where: { $0.id == queue[next] }) { load(track) }
+              }
+              func favorite(_ track: Track) { if let index = tracks.firstIndex(where: { $0.id == track.id }) { tracks[index].favorite.toggle(); save() } }
+              func remove(_ track: Track) {
+                  if currentID == track.id { player.pause(); player.replaceCurrentItem(with: nil); currentID = nil; elapsed = 0; duration = 0; MPNowPlayingInfoCenter.default().nowPlayingInfo = nil }
+                  queue.removeAll { $0 == track.id }; tracks.removeAll { $0.id == track.id }; save()
+                  try? fm.removeItem(at: root.appendingPathComponent(track.file)); if let art = artworkURL(track) { try? fm.removeItem(at: art) }
+              }
+              func toggleShuffle() {
+                  shuffle.toggle(); guard let currentID else { return }
+                  if shuffle { queue = [currentID] + queue.filter { $0 != currentID }.shuffled() }
+                  else { let ids = Set(queue); queue = tracks.filter { ids.contains($0.id) }.map(\.id) }
+              }
+              private func updateSystem() {
+                  guard let current else { return }
+                  var info: [String: Any] = [MPMediaItemPropertyTitle: current.title, MPMediaItemPropertyArtist: current.artist, MPMediaItemPropertyAlbumTitle: current.album, MPMediaItemPropertyPlaybackDuration: duration, MPNowPlayingInfoPropertyElapsedPlaybackTime: elapsed, MPNowPlayingInfoPropertyPlaybackRate: playing ? 1.0 : 0.0]
+                  // Reuse already registered artwork when the song does not change.
+                  let center = MPNowPlayingInfoCenter.default()
+                  if center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String == current.title, let art = center.nowPlayingInfo?[MPMediaItemPropertyArtwork] { info[MPMediaItemPropertyArtwork] = art }
+                  else if let url = artworkURL(current), let image = UIImage(contentsOfFile: url.path) { info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image } }
+                  center.nowPlayingInfo = info
+              }
+          }
+          
+          @main struct AuralApp: App {
+              @StateObject private var store = MusicStore()
+              var body: some Scene { WindowGroup { RootView().environmentObject(store).preferredColorScheme(.dark) } }
+          }
+          
+          struct Cover: View {
+              let url: URL?
+              var body: some View {
+                  GeometryReader { geo in
+                      ZStack {
+                          RoundedRectangle(cornerRadius: 12).fill(Color(red: 0.15, green: 0.22, blue: 0.24))
+                          if let url, let image = UIImage(contentsOfFile: url.path) { Image(uiImage: image).resizable().scaledToFill() }
+                          else { Image(systemName: "music.note").font(.system(size: max(15, geo.size.width * 0.27))).foregroundStyle(.mint.opacity(0.7)) }
+                      }.frame(width: geo.size.width, height: geo.size.height).clipped().clipShape(RoundedRectangle(cornerRadius: 12))
+                  }
+              }
+          }
+          
+          struct RootView: View {
+              @EnvironmentObject var store: MusicStore
+              @State private var tab = 0
+              @State private var category = "Albums"
+              @State private var search = ""
+              @State private var showFiles = false
+              @State private var showPlayer = false
+              var filtered: [Track] { store.tracks.filter { (tab != 1 || $0.favorite) && (search.isEmpty || "\($0.title) \($0.artist) \($0.album)".localizedCaseInsensitiveContains(search)) } }
+              var body: some View {
+                  TabView(selection: $tab) {
+                      NavigationStack { library }.tabItem { Label("Library", systemImage: "books.vertical") }.tag(0)
+                      NavigationStack { trackList(filtered).navigationTitle("Favorites") }.tabItem { Label("Favorites", systemImage: "heart") }.tag(1)
+                      NavigationStack { Form { Section("Aural Native") { Text("Version 0.1 · Cloud build"); Text("Local playback · No accounts or streaming"); Text("Files are copied into Aural's private storage. Keep your originals.") }; Section("Library") { Text("\(store.tracks.count) tracks"); Button("Add music") { showFiles = true } } }.navigationTitle("Settings") }.tabItem { Label("Settings", systemImage: "gearshape") }.tag(2)
+                  }
+                  .tint(.mint)
+                  .tabViewBottomAccessory(isEnabled: store.current != nil) { if let track = store.current { mini(track) } }
+                  .fileImporter(isPresented: $showFiles, allowedContentTypes: [.audio], allowsMultipleSelection: true) { result in
+                      switch result { case .success(let urls): Task { await store.importFiles(urls) }; case .failure(let error): store.message = error.localizedDescription }
+                  }
+                  .sheet(isPresented: $showPlayer) { PlayerView(progress: store.clock).environmentObject(store) }
+                  .alert("Aural", isPresented: Binding(get: { store.message != nil }, set: { if !$0 { store.message = nil } })) { Button("OK") { store.message = nil } } message: { Text(store.message ?? "") }
+              }
+              var library: some View {
+                  VStack(spacing: 0) {
+                      Picker("Library view", selection: $category) { ForEach(["Albums","Artists","Songs"], id: \.self) { Text($0) } }.pickerStyle(.segmented).padding(.horizontal).padding(.vertical, 8)
+                      if store.importing { ProgressView("Importing music…").padding(6) }
+                      if filtered.isEmpty { ContentUnavailableView("No music", systemImage: "music.note.list", description: Text("Add audio files from Files to get started.")) }
+                      else if category == "Songs" { trackList(filtered) }
+                      else { groups }
+                  }.navigationTitle("Library").searchable(text: $search, prompt: "Search your music").toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showFiles = true } label: { Label("Add music", systemImage: "plus") }.disabled(store.importing) } }
+              }
+              var groups: some View {
+                  let grouped = Dictionary(grouping: filtered) { track in category == "Artists" ? track.artist : (track.album == "Unknown album" ? track.title + " · " + track.artist : track.album + " · " + track.artist) }
+                  return ScrollView { LazyVGrid(columns: [GridItem(.adaptive(minimum: 148), spacing: 14)], spacing: 18) {
+                      ForEach(grouped.keys.sorted(), id: \.self) { key in
+                          if let songs = grouped[key], let first = songs.first {
+                              NavigationLink { trackList(songs).navigationTitle(category == "Artists" ? first.artist : (first.album == "Unknown album" ? first.title : first.album)) } label: {
+                                  VStack(alignment: .leading, spacing: 5) { Cover(url: store.artworkURL(first)).aspectRatio(1, contentMode: .fit); Text(category == "Artists" ? first.artist : (first.album == "Unknown album" ? first.title : first.album)).font(.headline).lineLimit(2); Text(category == "Artists" ? "\(songs.count) songs" : first.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1) }.foregroundStyle(.primary)
+                              }.buttonStyle(.plain)
+                          }
+                      }
+                  }.padding() }
+              }
+              func trackList(_ songs: [Track]) -> some View {
+                  List(songs) { track in
+                      Button { store.play(track, in: songs) } label: {
+                          HStack(spacing: 12) { Cover(url: store.artworkURL(track)).frame(width: 46,height: 46); VStack(alignment: .leading, spacing: 4) { Text(track.title).foregroundStyle(.primary).lineLimit(1); Text(track.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1) }; Spacer(); if store.currentID == track.id { Image(systemName: "waveform").foregroundStyle(.mint) } }
+                      }.buttonStyle(.plain).swipeActions { Button { store.favorite(track) } label: { Label("Favorite", systemImage: track.favorite ? "heart.slash" : "heart") }.tint(.mint) }.contextMenu { Button { store.favorite(track) } label: { Label(track.favorite ? "Remove favorite" : "Favorite", systemImage: "heart") }; Button(role: .destructive) { store.remove(track) } label: { Label("Remove from Aural", systemImage: "trash") } }
+                  }.listStyle(.plain)
+              }
+              func mini(_ track: Track) -> some View {
+                  HStack(spacing: 10) {
+                      Button { showPlayer = true } label: { HStack(spacing: 10) { Cover(url: store.artworkURL(track)).frame(width: 40,height: 40); VStack(alignment: .leading,spacing: 3) { Text(track.title).font(.subheadline.weight(.semibold)).lineLimit(1); Text(track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1) }; Spacer(minLength: 0) }.foregroundStyle(.primary) }.buttonStyle(.plain)
+                      Button { store.toggle() } label: { Image(systemName: store.playing ? "pause.fill" : "play.fill").frame(width:44,height:44) }.accessibilityLabel(store.playing ? "Pause" : "Play")
+                      Button { store.advance(1) } label: { Image(systemName: "forward.end.fill").frame(width:44,height:44) }.accessibilityLabel("Next track")
+                  }.padding(.horizontal, 12).foregroundStyle(.primary)
+              }
+          }
+          
+          struct PlayerView: View {
+              @ObservedObject var progress: PlaybackClock
+              @EnvironmentObject var store: MusicStore
+              @Environment(\.dismiss) var dismiss
+              @State private var dragging = false
+              @State private var seekValue = 0.0
+              var body: some View {
+                  GeometryReader { geo in
+                      if let track = store.current {
+                          ScrollView {
+                              VStack(spacing: 20) {
+                                  HStack { Button { dismiss() } label: { Image(systemName: "chevron.down").frame(width:44,height:44) }.accessibilityLabel("Close player"); Spacer(); Text("NOW PLAYING").font(.caption.weight(.semibold)).tracking(2).foregroundStyle(.secondary); Spacer(); Color.clear.frame(width:44,height:44) }
+                                  Cover(url: store.artworkURL(track)).frame(width: min(geo.size.width - 48, geo.size.height * 0.47), height: min(geo.size.width - 48, geo.size.height * 0.47))
+                                  HStack { VStack(alignment: .leading,spacing: 5) { Text(track.title).font(.title2.bold()).lineLimit(2); Text(track.artist).font(.title3).foregroundStyle(.secondary); Text(track.format).font(.footnote.weight(.medium)).foregroundStyle(.mint) }; Spacer(); Button { store.favorite(track) } label: { Image(systemName: track.favorite ? "heart.fill" : "heart").font(.title2).frame(width:44,height:44) }.accessibilityLabel("Favorite") }
+                                  Slider(value: Binding(get: { dragging ? seekValue : min(progress.elapsed,max(progress.duration,1)) }, set: { seekValue = $0 }), in: 0...max(progress.duration,1), onEditingChanged: { active in if active { seekValue = progress.elapsed; dragging = true } else { store.seek(seekValue); dragging = false } }).accessibilityLabel("Playback position")
+                                  HStack { Text(clock(dragging ? seekValue : progress.elapsed)); Spacer(); Text(clock(progress.duration)) }.font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                  HStack { Button { store.toggleShuffle() } label: { Image(systemName: "shuffle").frame(width:44,height:44).foregroundStyle(store.shuffle ? Color.mint : Color.primary) }.accessibilityLabel("Shuffle"); Spacer(); Button { store.advance(-1) } label: { Image(systemName: "backward.end.fill").font(.title2).frame(width:44,height:44) }.accessibilityLabel("Previous"); Spacer(); Button { store.toggle() } label: { Image(systemName: store.playing ? "pause.fill" : "play.fill").font(.system(size:28,weight:.semibold)).frame(width:72,height:72).background(.white,in: Circle()).foregroundStyle(.black) }.accessibilityLabel(store.playing ? "Pause" : "Play"); Spacer(); Button { store.advance(1) } label: { Image(systemName: "forward.end.fill").font(.title2).frame(width:44,height:44) }.accessibilityLabel("Next"); Spacer(); Button { store.repeatOne.toggle() } label: { Image(systemName: store.repeatOne ? "repeat.1" : "repeat").frame(width:44,height:44).foregroundStyle(store.repeatOne ? Color.mint : Color.primary) }.accessibilityLabel("Repeat one") }
+                              }.frame(maxWidth: 520).padding(20).frame(maxWidth: .infinity)
+                          }.scrollBounceBehavior(.basedOnSize)
+                      } else { ContentUnavailableView("Nothing playing", systemImage: "music.note") }
+                  }.background(Color(red: 0.07,green: 0.08,blue: 0.09).ignoresSafeArea()).tint(.mint)
+              }
+              func clock(_ value: Double) -> String { let s = Int(max(0,min(value.isFinite ? value : 0, 999999))); return String(format: "%d:%02d",s/60,s%60) }
+          }
+          AURAL_SOURCE
+          cat > project.yml <<'AURAL_SOURCE'
+          name: Aural
+          options:
+            bundleIdPrefix: local.aural
+            deploymentTarget:
+              iOS: '26.1'
+          targets:
+            Aural:
+              type: application
+              platform: iOS
+              sources: [Aural]
+              info:
+                path: AuralInfo.plist
+                properties:
+                  CFBundleDisplayName: Aural
+                  UILaunchScreen: {}
+                  UIBackgroundModes: [audio]
+                  UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+                  UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+              settings:
+                base:
+                  PRODUCT_BUNDLE_IDENTIFIER: local.aural.player
+                  MARKETING_VERSION: '0.1.0'
+                  CURRENT_PROJECT_VERSION: '1'
+                  SWIFT_VERSION: '5.0'
+                  TARGETED_DEVICE_FAMILY: '1,2'
+                  ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+                  CODE_SIGNING_ALLOWED: NO
+              scheme:
+                gatherCoverageData: false
+          AURAL_SOURCE
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcodebuild -version
+          xcodegen generate
+          xcodebuild -project Aural.xcodeproj -scheme Aural -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$PWD/DerivedData" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+          APP="$PWD/DerivedData/Build/Products/Release-iphoneos/Aural.app"
+          test -f "$APP/Aural"
+          mkdir -p "$GITHUB_WORKSPACE/output/Payload"
+          ditto "$APP" "$GITHUB_WORKSPACE/output/Payload/Aural.app"
+          cd "$GITHUB_WORKSPACE/output"
+          zip -qry Aural-unsigned.ipa Payload
+          unzip -tq Aural-unsigned.ipa
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aural-Native-unsigned
+          path: output/Aural-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7
