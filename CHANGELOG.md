@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1 — Foundation audit corrections
+- Independent stale-index verification before deletion; atomic first index and fail-closed UI state.
+- Explicit previous-index recovery with file validation and preservation of damaged bytes.
+- Case-folded filename collision checks and directory/symlink deletion guards.
+- Separate Favorites filtering; visible busy/recovery states.
+- Independent stale-delete, recovery, path safety and 10,000-track metadata tests.
+
 ## 0.2.0 — Foundation hardening
 - Explicit bundle version keys and diagnostics; modern CI actions and separate scripts.
 - Asynchronous versioned storage, atomic writes, previous-index backup and corruption protection.

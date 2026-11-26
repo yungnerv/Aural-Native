@@ -20,6 +20,10 @@ actor AudioImporter {
                 do { try fm.copyItem(at: readable, to: destination) } catch { copyError = error }
             }
             if let coordinationError { throw coordinationError }; if let copyError { throw copyError }
+            let properties = try destination.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+            guard properties.isRegularFile == true, properties.isSymbolicLink != true else {
+                throw NSError(domain: "Aural.Import", code: 2, userInfo: [NSLocalizedDescriptionKey: "Only regular audio files can be imported."])
+            }
             let digest = try FileDigest.sha256(destination)
             if knownHashes.contains(digest) { try fm.removeItem(at: destination); return nil }
             try Task.checkCancellation()
@@ -46,6 +50,7 @@ actor AudioImporter {
                     try jpeg.write(to: root.appendingPathComponent(art), options: .atomic); artName = art
                 }
             }
+            try Task.checkCancellation()
             return Track(id: id, file: name, title: title, artist: artist, album: album, duration: d.isFinite ? max(0,d) : 0, artwork: artName, contentHash: digest)
         } catch { try? fm.removeItem(at: destination); if let artName { try? fm.removeItem(at: root.appendingPathComponent(artName)) }; throw error }
     }

@@ -21,7 +21,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
       - name: Preflight build scripts and packaging tests
@@ -29,6 +29,8 @@ jobs:
         run: |
           bash -n Scripts/build.sh
           bash -n Scripts/test.sh
+          bash -n Scripts/toolchain.sh
+          bash -n Scripts/simulator.sh
           python3 -m unittest discover -s Tests -p 'test_*.py' -v
       - name: Validate version and run model tests
         id: version
@@ -41,8 +43,18 @@ jobs:
           bash Scripts/test.sh
       - name: Compile and package unsigned IPA
         run: bash Scripts/build.sh
+      - name: Simulator integration and launch tests
+        run: bash Scripts/simulator.sh
+      - name: Upload simulator results
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: Aural-simulator-results-${{ github.run_number }}
+          path: AuralTests.xcresult
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Upload unsigned IPA
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: Aural-Native-${{ steps.version.outputs.version }}-build-${{ github.run_number }}
           path: |
@@ -59,10 +71,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: Aural-Native-${{ needs.build.outputs.version }}-build-${{ github.run_number }}
           path: output

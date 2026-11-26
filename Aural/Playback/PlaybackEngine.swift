@@ -3,7 +3,7 @@ import AVFoundation
 
 /// AVPlayer lifecycle, audio session and observation. No library or view dependencies.
 @MainActor final class PlaybackEngine {
-    private let player = AVPlayer()
+    private var player = AVPlayer()
     private var timeObserver: Any?
     private var itemObserver: NSKeyValueObservation?
     private var stateObserver: NSKeyValueObservation?
@@ -11,6 +11,8 @@ import AVFoundation
     private var resumeAfterInterruption = false
     private var seekGeneration = 0
     private var seeking = false
+    private var preparedURL: URL?
+    private var mediaReset = false
     private(set) var wantsPlayback = false
     var isPlaying: Bool { player.timeControlStatus == .playing }
 
@@ -21,14 +23,7 @@ import AVFoundation
     var onSeek: (() -> Void)?
 
     init() {
-        timeObserver = player.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.reportProgress() }
-        }
-        stateObserver = player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
-            Task { @MainActor in self?.reportState() }
-        }
+        installPlayerObservers()
         let center = NotificationCenter.default
         notifications.append(center.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: nil, queue: .main) { [weak self] note in
             Task { @MainActor in
@@ -53,6 +48,42 @@ import AVFoundation
                 if reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue { self?.pause() }
             }
         })
+        notifications.append(center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.handleMediaReset() }
+        })
+    }
+
+    private func installPlayerObservers() {
+        timeObserver = player.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.reportProgress() }
+        }
+        stateObserver = player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor in self?.reportState() }
+        }
+    }
+
+    private func handleMediaReset() {
+        // Recreate media-server objects after reset. Never restart audio without
+        // user intent. Resume will prepare the same URL on the new player.
+        if let timeObserver { player.removeTimeObserver(timeObserver) }
+        timeObserver = nil
+        stateObserver?.invalidate()
+        stateObserver = nil
+        itemObserver?.invalidate()
+        itemObserver = nil
+        seekGeneration += 1
+        seeking = false
+        wantsPlayback = false
+        resumeAfterInterruption = false
+        player = AVPlayer()
+        mediaReset = preparedURL != nil
+        installPlayerObservers()
+        reportState()
+        if mediaReset {
+            onFailure?("Audio services restarted. Press Play to resume the selected track from the beginning.")
+        }
     }
 
     deinit {
@@ -71,6 +102,8 @@ import AVFoundation
     /// Do not switch the existing item until session activation succeeds.
     func prepare(_ url: URL) throws {
         try activate()
+        preparedURL = url
+        mediaReset = false
         player.pause()
         wantsPlayback = false
         resumeAfterInterruption = false
@@ -98,8 +131,13 @@ import AVFoundation
     }
 
     func resume() throws {
-        guard player.currentItem != nil else { return }
-        try activate()
+        if mediaReset, let url = preparedURL {
+            try prepare(url)
+            onProgress?(0, nil)
+        } else {
+            guard player.currentItem != nil else { return }
+            try activate()
+        }
         start()
     }
 
@@ -111,6 +149,8 @@ import AVFoundation
     }
 
     func clear() {
+        preparedURL = nil
+        mediaReset = false
         pause()
         seekGeneration += 1
         seeking = false

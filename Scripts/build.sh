@@ -6,9 +6,7 @@ BUILD_NUMBER=${GITHUB_RUN_NUMBER:-1}
 COMMIT=$(git rev-parse HEAD)
 [[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
 [[ "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]
-command -v xcodegen >/dev/null || brew install xcodegen
-xcodebuild -version
-xcodegen --version
+source Scripts/toolchain.sh
 xcodegen generate
 xcodebuild -project Aural.xcodeproj -scheme Aural -configuration Release \
   -sdk iphoneos -destination generic/platform=iOS \

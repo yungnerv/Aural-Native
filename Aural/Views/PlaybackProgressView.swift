@@ -2,14 +2,53 @@ import SwiftUI
 
 struct PlaybackProgressView: View {
     @ObservedObject var progress: PlaybackClock
-    let seek: (Double) -> Void
-    @State private var dragging = false
+    let trackID: UUID
+    let seek: (UUID, Double) -> Void
+    @State private var dragTrackID: UUID?
     @State private var seekValue = 0.0
+
+    private var upperBound: Double {
+        max(progress.duration.isFinite ? progress.duration : 0, 1)
+    }
+
+    private var displayedValue: Double {
+        let value = dragTrackID == nil ? progress.elapsed : seekValue
+        return min(max(value.isFinite ? value : 0, 0), upperBound)
+    }
+
     var body: some View {
         VStack(spacing: 8) {
-            Slider(value: Binding(get: { dragging ? seekValue : min(progress.elapsed,max(progress.duration,1)) }, set: { seekValue = $0 }), in: 0...max(progress.duration,1), onEditingChanged: { active in if active { seekValue = progress.elapsed; dragging = true } else { seek(seekValue); dragging = false } }).accessibilityLabel("Playback position")
-            HStack { Text(clock(dragging ? seekValue : progress.elapsed)); Spacer(); Text(clock(progress.duration)) }.font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            Slider(
+                value: Binding(get: { displayedValue }, set: { seekValue = $0 }),
+                in: 0...upperBound,
+                onEditingChanged: { active in
+                    if active {
+                        dragTrackID = trackID
+                        seekValue = displayedValue
+                    } else {
+                        if dragTrackID == trackID { seek(trackID, displayedValue) }
+                        dragTrackID = nil
+                    }
+                }
+            )
+            .disabled(progress.duration <= 0 || !progress.duration.isFinite)
+            .accessibilityLabel("Playback position")
+            HStack {
+                Text(clock(displayedValue))
+                Spacer()
+                Text(clock(progress.duration))
+            }
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+        }
+        .onChange(of: trackID) { _, _ in
+            dragTrackID = nil
+            seekValue = 0
         }
     }
-    func clock(_ value: Double) -> String { let s = Int(max(0,min(value.isFinite ? value : 0, 999999))); return String(format: "%d:%02d",s/60,s%60) }
+
+    private func clock(_ value: Double) -> String {
+        let seconds = Int(max(0, min(value.isFinite ? value : 0, 999999)))
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
 }

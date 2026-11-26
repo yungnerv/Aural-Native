@@ -8,3 +8,7 @@
 - Update VERSION and CHANGELOG. Preserve bundle ID, storage migrations and original files.
 - Do not commit personal music, secrets, signing keys or profiles. Releases are unsigned prereleases.
 - Physical-device testing is mandatory before calling an audio or UI feature production-ready.
+
+- Keep Xcode and XcodeGen versions explicit; CI actions use reviewed immutable commit SHAs. Upgrade deliberately, not accidentally.
+- Run the simulator integration/launch suite and review concurrency warnings. Swift 6 language-mode migration requires a separate verified change.
+- Recovery must validate the backup, preserve the damaged index, refuse unsupported newer schemas and require user confirmation.

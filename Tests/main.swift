@@ -95,15 +95,89 @@ func runTests() async throws {
 
     // Two repository instances opening the same index must not overwrite each other.
     let stale = LibraryRepository(root: emptyRoot)
+    let staleDelete = LibraryRepository(root: emptyRoot)
     _ = try await stale.load()
+    _ = try await staleDelete.load()
+    let liveMedia = emptyRoot.appendingPathComponent(first.file)
+    try Data("protected music".utf8).write(to: liveMedia)
+    try Data("artwork".utf8).write(to: emptyRoot.appendingPathComponent(first.artwork!))
     try await emptyRepo.commit([first])
     let newerBytes = try Data(contentsOf: emptyIndex)
+    // Exercise direct deletion before any failed commit can invalidate the actor.
+    do { try await staleDelete.removeMedia(first); fatalError("Direct stale deletion accepted") } catch {}
+    check(FileManager.default.fileExists(atPath: liveMedia.path), "Direct stale deletion preserves actual media")
     do { try await stale.commit([third]); fatalError("Stale write accepted") } catch {}
     do { try await stale.removeMedia(first); fatalError("Stale deletion accepted") } catch {}
     let afterStale = try Data(contentsOf: emptyIndex)
     check(afterStale == newerBytes, "Stale operations preserve latest index")
     let final = try await LibraryRepository(root: emptyRoot).load()
     check(final == [first], "Latest library survives stale operations")
-    print("PASS: model, queue, index, migration, atomic writes, corruption protection, digest, initial index, stale writer protection")
+    // Recovery must never overwrite a healthy/newer schema, delete unknown files,
+    // or accept a previous index referencing files that no longer exist.
+    let recoveryRoot = root.appendingPathComponent("recovery", isDirectory: true)
+    let recoveryRepo = LibraryRepository(root: recoveryRoot)
+    _ = try await recoveryRepo.load()
+    let audio = recoveryRoot.appendingPathComponent(first.file)
+    let art = recoveryRoot.appendingPathComponent(first.artwork!)
+    try Data("music".utf8).write(to: audio)
+    try Data("art".utf8).write(to: art)
+    try await recoveryRepo.commit([first])
+    var changed = first
+    changed.favorite = false
+    try await recoveryRepo.commit([changed])
+    let recoveryIndex = recoveryRoot.appendingPathComponent("library.json")
+    let originalBytes = try Data(contentsOf: recoveryIndex)
+    let healthy = LibraryRepository(root: recoveryRoot)
+    do { _ = try await healthy.inspectRecovery(); fatalError("Healthy index eligible for restore") } catch {}
+    try Data("{\"schemaVersion\":99,\"tracks\":[]}".utf8).write(to: recoveryIndex)
+    let newer = LibraryRepository(root: recoveryRoot)
+    do { _ = try await newer.inspectRecovery(); fatalError("Newer schema eligible for restore") } catch {}
+    try Data("corruption".utf8).write(to: recoveryIndex)
+    let damagedRepo = LibraryRepository(root: recoveryRoot)
+    do { _ = try await damagedRepo.load(); fatalError("Corruption accepted") } catch {}
+    let report = try await damagedRepo.inspectRecovery()
+    check(report.tracks == 1 && report.canRestore, "Recovery inspected")
+    try FileManager.default.removeItem(at: audio)
+    do { _ = try await damagedRepo.restorePreviousIndex(); fatalError("Missing media recovery accepted") } catch {}
+    check(try Data(contentsOf: recoveryIndex) == Data("corruption".utf8), "Failed restore preserves corrupt bytes")
+    try Data("music".utf8).write(to: audio)
+    let restored = try await damagedRepo.restorePreviousIndex()
+    check(restored == [first], "Explicit previous index restore")
+    let archives = try FileManager.default.contentsOfDirectory(atPath: recoveryRoot.path)
+        .filter { $0.hasPrefix("library.damaged-") }
+    check(archives.count == 1, "Corrupt index archived")
+    check(try Data(contentsOf: recoveryRoot.appendingPathComponent(archives[0])) == Data("corruption".utf8), "Original damaged bytes retained")
+    check(try Data(contentsOf: recoveryIndex) != originalBytes, "Previous metadata restored")
+    var conflicting = third
+    conflicting.file = first.file.lowercased()
+    do { try await damagedRepo.commit([first, conflicting]); fatalError("Case-folded collision accepted") } catch {}
+    let folder = recoveryRoot.appendingPathComponent("folder.mp3", isDirectory: true)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    var directoryTrack = third
+    directoryTrack.file = "folder.mp3"
+    do { try await damagedRepo.removeMedia(directoryTrack); fatalError("Directory deletion accepted") } catch {}
+    check(FileManager.default.fileExists(atPath: folder.path), "Directory preserved")
+    let linked = recoveryRoot.appendingPathComponent("link.mp3")
+    try FileManager.default.createSymbolicLink(at: linked, withDestinationURL: audio)
+    var linkTrack = third
+    linkTrack.file = "link.mp3"
+    do { try await damagedRepo.removeMedia(linkTrack); fatalError("Symlink deletion accepted") } catch {}
+    check(FileManager.default.fileExists(atPath: audio.path), "Symlink destination preserved")
+
+    // Stress the real serializer and derived index on a 10,000-track fixture.
+    let large = (0..<10_000).map { i in
+        Track(file: "track-\(i).flac", title: "Track \(i)", artist: "Artist \(i % 100)", album: "Album \(i % 500)", duration: 180, favorite: i % 10 == 0)
+    }
+    let stress = LibraryRepository(root: root.appendingPathComponent("stress"))
+    _ = try await stress.load()
+    let started = Date()
+    try await stress.commit(large)
+    let reloaded = try await stress.load()
+    let indexed = await stress.makeIndex(reloaded)
+    check(reloaded == large && indexed.byID.count == 10_000, "10k track round trip")
+    check(indexed.filter("", favoritesOnly: true).count == 1_000, "10k track favorites")
+    check(indexed.groups(category: "Artists", query: "").count == 100, "10k artist groups")
+    print("10k metadata fixture commit/reload/index: \(Date().timeIntervalSince(started)) seconds (host only)")
+    print("PASS: storage, migration, independent stale deletion, explicit recovery, path guards, 10k fixture, queue, index, digest")
 }
 try await runTests()

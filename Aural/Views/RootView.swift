@@ -8,11 +8,12 @@ struct RootView: View {
     @State private var search = ""
     @State private var showFiles = false
     @State private var showPlayer = false
-    var filtered: [Track] { store.index.filter(search, favoritesOnly: tab == 1) }
+    @State private var confirmRecovery = false
+    var filtered: [Track] { store.index.filter(search) }
     var body: some View {
         TabView(selection: $tab) {
             NavigationStack { library }.tabItem { Label("Library", systemImage: "books.vertical") }.tag(0)
-            NavigationStack { trackList(filtered).navigationTitle("Favorites") }.tabItem { Label("Favorites", systemImage: "heart") }.tag(1)
+            NavigationStack { trackList(store.index.filter("", favoritesOnly: true)).navigationTitle("Favorites") }.tabItem { Label("Favorites", systemImage: "heart") }.tag(1)
             NavigationStack { Form { Section("Aural Native") { Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown") · Build \(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1")"); Text("Local playback · No accounts or streaming"); Text("Files are copied into Aural's private storage. Keep your originals.") }; Section("Library") { Text("\(store.tracks.count) tracks"); Button("Add music") { showFiles = true }.disabled(!store.libraryReady || store.mutationBusy) } }.navigationTitle("Settings") }.tabItem { Label("Settings", systemImage: "gearshape") }.tag(2)
         }
         .tint(.mint)
@@ -21,6 +22,10 @@ struct RootView: View {
             switch result { case .success(let urls): Task { await store.importFiles(urls) }; case .failure(let error): store.message = error.localizedDescription }
         }
         .sheet(isPresented: $showPlayer) { PlayerView(progress: store.clock).environmentObject(store) }
+        .confirmationDialog("Restore previous library index?", isPresented: $confirmRecovery, titleVisibility: .visible) {
+            Button("Restore previous index") { store.restoreLibrary() }
+            Button("Cancel", role: .cancel) {}
+        } message: { Text("The current damaged index will be preserved. The previous index may omit recent library changes. No audio files will be deleted.") }
         .alert("Aural", isPresented: Binding(get: { store.message != nil }, set: { if !$0 { store.message = nil } })) { Button("OK") { store.message = nil } } message: { Text(store.message ?? "") }
     }
     var library: some View {
@@ -28,7 +33,22 @@ struct RootView: View {
             Picker("Library view", selection: $category) { ForEach(["Albums","Artists","Songs"], id: \.self) { Text($0) } }.pickerStyle(.segmented).padding(.horizontal).padding(.vertical, 8)
             if store.importing { ProgressView("Importing music…").padding(6) }
             if store.libraryLoading { ProgressView("Opening library…").frame(maxWidth: .infinity, maxHeight: .infinity) }
-            else if !store.libraryReady { ContentUnavailableView("Library unavailable", systemImage: "exclamationmark.triangle", description: Text("Existing files are protected. No changes can be made.")) }
+            else if !store.libraryReady {
+                ContentUnavailableView {
+                    Label("Library unavailable", systemImage: "exclamationmark.triangle")
+                } description: {
+                    if let report = store.recoveryReport {
+                        Text("Previous index: \(report.tracks) tracks, \(report.missingMedia) missing files, \(report.unreferencedFiles) unreferenced files. Existing files are protected.")
+                    } else {
+                        Text("Existing files are protected. No changes can be made.")
+                    }
+                } actions: {
+                    Button("Reopen library") { store.retryLibrary() }.disabled(store.mutationBusy)
+                    if store.recoveryReport?.canRestore == true {
+                        Button("Restore previous index…") { confirmRecovery = true }.disabled(store.mutationBusy)
+                    }
+                }
+            }
             else if filtered.isEmpty { ContentUnavailableView("No music", systemImage: "music.note.list", description: Text("Add audio files from Files to get started.")) }
             else if category == "Songs" { trackList(filtered) }
             else { groups }
@@ -58,7 +78,7 @@ struct RootView: View {
         List(songs) { track in
             Button { store.play(track, in: songs) } label: {
                 HStack(spacing: 12) { Cover(url: store.artworkURL(track)).frame(width: 46,height: 46); VStack(alignment: .leading, spacing: 4) { Text(track.title).foregroundStyle(.primary).lineLimit(1); Text(track.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1) }; Spacer(); if store.currentID == track.id { Image(systemName: "waveform").foregroundStyle(.mint) } }
-            }.buttonStyle(.plain).swipeActions { Button { store.favorite(track) } label: { Label("Favorite", systemImage: track.favorite ? "heart.slash" : "heart") }.tint(.mint) }.contextMenu { Button { store.favorite(track) } label: { Label(track.favorite ? "Remove favorite" : "Favorite", systemImage: "heart") }; Button(role: .destructive) { store.remove(track) } label: { Label("Remove from Aural", systemImage: "trash") } }
+            }.buttonStyle(.plain).swipeActions { Button { store.favorite(track) } label: { Label(track.favorite ? "Remove favorite" : "Favorite", systemImage: track.favorite ? "heart.slash" : "heart") }.tint(.mint).disabled(store.mutationBusy || !store.libraryReady) }.contextMenu { Button { store.favorite(track) } label: { Label(track.favorite ? "Remove favorite" : "Favorite", systemImage: "heart") }.disabled(store.mutationBusy || !store.libraryReady); Button(role: .destructive) { store.remove(track) } label: { Label("Remove from Aural", systemImage: "trash") }.disabled(store.mutationBusy || !store.libraryReady) }
         }.listStyle(.plain)
     }
     func mini(_ track: Track) -> some View {

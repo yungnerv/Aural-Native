@@ -7,6 +7,7 @@ import Combine
     @Published private(set) var tracks: [Track] = []
     @Published private(set) var libraryReady = false
     @Published private(set) var libraryLoading = true
+    @Published private(set) var recoveryReport: LibraryRepository.RecoveryReport?
     @Published private(set) var mutationBusy = false
     @Published private(set) var currentID: UUID?
     @Published private(set) var playing = false
@@ -75,22 +76,74 @@ import Combine
     }
 
     private func openLibrary() async {
+        libraryLoading = true
+        recoveryReport = nil
         defer { libraryLoading = false }
         do {
             await apply(try await repository.load())
             libraryReady = true
         } catch {
+            libraryReady = false
+            recoveryReport = try? await repository.inspectRecovery()
             message = "Library could not be opened. Existing files are protected.\n\(error.localizedDescription)"
+        }
+    }
+
+    func retryLibrary() {
+        guard !mutationBusy, !libraryLoading else { return }
+        mutationBusy = true
+        libraryReady = false
+        Task {
+            defer { mutationBusy = false }
+            await openLibrary()
+        }
+    }
+
+    func restoreLibrary() {
+        guard !libraryReady, !mutationBusy, !libraryLoading,
+              recoveryReport?.canRestore == true else { return }
+        mutationBusy = true
+        libraryLoading = true
+        Task {
+            defer { mutationBusy = false; libraryLoading = false }
+            do {
+                let restored = try await repository.restorePreviousIndex()
+                await apply(restored)
+                recoveryReport = nil
+                libraryReady = true
+                message = "Previous library index restored. Original files were preserved."
+            } catch {
+                recoveryReport = try? await repository.inspectRecovery()
+                message = "Recovery was not completed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func reportMutationError(_ error: Error) {
+        if let failure = error as? LibraryRepository.Failure, failure.requiresReopen {
+            libraryReady = false
+            recoveryReport = nil
         }
     }
 
     private func apply(_ next: [Track]) async {
         index = await repository.makeIndex(next)
         tracks = next
+        if let currentID, index.byID[currentID] == nil {
+            self.currentID = nil
+            engine.clear()
+            playing = false
+            actualPlaying = false
+            elapsed = 0
+            duration = 0
+            system?.clear()
+            queue.remove(currentID)
+        }
     }
 
     private func commit(_ next: [Track]) async throws {
-        try await repository.commit(next)
+        do { try await repository.commit(next) }
+        catch { reportMutationError(error); throw error }
         await apply(next)
     }
 
@@ -99,7 +152,10 @@ import Combine
     }
 
     func importFiles(_ urls: [URL]) async {
-        guard libraryReady, !mutationBusy else { return }
+        guard libraryReady, !mutationBusy else {
+            message = libraryReady ? "Wait for the current library operation to finish." : "Reopen the library before importing."
+            return
+        }
         importing = true
         mutationBusy = true
         defer { importing = false; mutationBusy = false }
@@ -138,7 +194,7 @@ import Combine
         } catch {
             for track in pending {
                 do { try await repository.removeMedia(track) }
-                catch { errors.append("Could not clean up \(track.title): \(error.localizedDescription)") }
+                catch { reportMutationError(error); errors.append("Could not clean up \(track.title): \(error.localizedDescription)") }
             }
             errors.append(error.localizedDescription)
         }
@@ -191,7 +247,8 @@ import Combine
     }
 
     func favorite(_ track: Track) {
-        guard libraryReady, !mutationBusy, let i = tracks.firstIndex(where: { $0.id == track.id }) else { return }
+        guard libraryReady, !mutationBusy else { message = "The library is busy or unavailable."; return }
+        guard let i = tracks.firstIndex(where: { $0.id == track.id }) else { return }
         mutationBusy = true
         var next = tracks
         next[i].favorite.toggle()
@@ -203,25 +260,17 @@ import Combine
     }
 
     func remove(_ track: Track) {
-        guard libraryReady, !mutationBusy, let stored = index.byID[track.id] else { return }
+        guard libraryReady, !mutationBusy else { message = "The library is busy or unavailable."; return }
+        guard let stored = index.byID[track.id] else { return }
         mutationBusy = true
         let next = tracks.filter { $0.id != stored.id }
         Task {
             defer { mutationBusy = false }
             do { try await commit(next) }
             catch { message = "Track was not removed: \(error.localizedDescription)"; return }
-            if currentID == stored.id {
-                currentID = nil
-                engine.clear()
-                playing = false
-                actualPlaying = false
-                elapsed = 0
-                duration = 0
-                system?.clear()
-            }
             queue.remove(stored.id)
             do { try await repository.removeMedia(stored) }
-            catch { message = "Track removed from index; media cleanup failed: \(error.localizedDescription)" }
+            catch { reportMutationError(error); message = "Track removed from index; media cleanup failed: \(error.localizedDescription)" }
         }
     }
 
