@@ -24,6 +24,12 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+      - name: Preflight build scripts and packaging tests
+        shell: bash
+        run: |
+          bash -n Scripts/build.sh
+          bash -n Scripts/test.sh
+          python3 -m unittest discover -s Tests -p 'test_*.py' -v
       - name: Validate version and run model tests
         id: version
         shell: bash

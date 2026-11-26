@@ -15,3 +15,5 @@ iOS/iPadOS 26.1+. The CI workflow runs Scripts/test.sh then Scripts/build.sh. VE
 ## Remaining validation
 
 Physical-device signing, interruptions and background playback, storage recovery tooling, profiling at large-library scale, extended decoders, gapless playback and full PWA parity remain outstanding. Playback engine and system controller have independent ownership and observation lifetimes. Physical-device lifecycle testing remains required.
+
+Packaging is implemented in Scripts/package.py. CI parses both shell scripts and exercises packaging against synthetic bundles before invoking Xcode. The packager validates bundle identity, version, executable and archive integrity, preserves executable permissions, rejects escaping symlinks, and publishes checksum and build metadata only after archive validation. Synthetic fixtures do not establish actual iOS installation compatibility.
