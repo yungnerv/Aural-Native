@@ -9,5 +9,6 @@ struct Track: Codable, Identifiable, Hashable {
     var duration: Double
     var favorite = false
     var artwork: String? = nil
+    var contentHash: String? = nil
     var format: String { URL(fileURLWithPath: file).pathExtension.uppercased() }
 }

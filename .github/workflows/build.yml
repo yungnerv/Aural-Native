@@ -2,10 +2,10 @@ name: Build Aural Native
 on:
   push:
     branches: [main]
-    paths: ['Aural/**', 'Tests/**', 'project.yml', 'VERSION', 'CHANGELOG.md', '.github/workflows/build.yml']
+    paths: ['Aural/**', 'Tests/**', 'Scripts/**', 'project.yml', 'VERSION', 'CHANGELOG.md', '.github/workflows/build.yml']
   pull_request:
     branches: [main]
-    paths: ['Aural/**', 'Tests/**', 'project.yml', 'VERSION', 'CHANGELOG.md', '.github/workflows/build.yml']
+    paths: ['Aural/**', 'Tests/**', 'Scripts/**', 'project.yml', 'VERSION', 'CHANGELOG.md', '.github/workflows/build.yml']
   workflow_dispatch:
     inputs:
       publish_release:
@@ -21,7 +21,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - name: Validate version and run model tests
@@ -32,34 +32,13 @@ jobs:
           VERSION=$(tr -d '\r\n' < VERSION)
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          swiftc Aural/Models/Track.swift Tests/main.swift -o "$RUNNER_TEMP/aural-tests"
-          "$RUNNER_TEMP/aural-tests"
+          bash Scripts/test.sh
       - name: Compile and package unsigned IPA
-        shell: bash
         env:
           APP_VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          set -euo pipefail
-          command -v xcodegen >/dev/null || brew install xcodegen
-          xcodebuild -version
-          xcodegen generate
-          xcodebuild -project Aural.xcodeproj -scheme Aural -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$PWD/DerivedData" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO MARKETING_VERSION="$APP_VERSION" CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" build
-          APP="$PWD/DerivedData/Build/Products/Release-iphoneos/Aural.app"
-          test -f "$APP/Aural"
-          test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP/Info.plist")" = 'local.aural.player'
-          test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Info.plist")" = "$APP_VERSION"
-          test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$APP/Info.plist")" = "$GITHUB_RUN_NUMBER"
-          mkdir -p output/Payload
-          ditto "$APP" output/Payload/Aural.app"
-          cd output
-          IPA="Aural-${APP_VERSION}-build-${GITHUB_RUN_NUMBER}-unsigned.ipa"
-          zip -qry "$IPA" Payload
-          unzip -tq "$IPA"
-          shasum -a 256 "$IPA" > SHA256SUMS.txt
-          printf 'Version: %s\nBuild: %s\nCommit: %s\nUnsigned: yes\n' "$APP_VERSION" "$GITHUB_RUN_NUMBER" "$GITHUB_SHA" > BUILD.txt
-          cat BUILD.txt >> "$GITHUB_STEP_SUMMARY"
+        run: bash Scripts/build.sh
       - name: Upload unsigned IPA
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Aural-Native-${{ steps.version.outputs.version }}-build-${{ github.run_number }}
           path: |
@@ -76,10 +55,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: Aural-Native-${{ needs.build.outputs.version }}-build-${{ github.run_number }}
           path: output

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0 — Foundation hardening
+- Explicit bundle version keys and diagnostics; modern CI actions and separate scripts.
+- Asynchronous versioned storage, atomic writes, previous-index backup and corruption protection.
+- Serialized mutations, bounded import batches and streaming duplicate detection.
+- Separate importer, queue, library index and artwork cache; isolate progress view updates.
+- Restore queue ordering, register artwork by track ID, handle audio interruptions and clean up observers.
+- Expand portable regression tests and establish permanent development rules.
+- Native device testing remains outstanding.
+
 ## 0.1.1 — Development foundation
 - Split the previously compiled 0.1.0 Swift source into model, playback and view files.
 - Preserve bundle identifier, audio engine, library storage format and icon.

@@ -1,13 +1,17 @@
-import SwiftUI
+import Foundation
 import AVFoundation
 import MediaPlayer
-import UniformTypeIdentifiers
 import Combine
 import UIKit
-import ImageIO
 
 @MainActor final class MusicStore: ObservableObject {
-    @Published var tracks: [Track] = []
+    @Published private(set) var tracks: [Track] = []
+    @Published private(set) var libraryReady = false
+    @Published private(set) var libraryLoading = true
+    @Published private(set) var mutationBusy = false
+    private(set) var index = LibraryIndex([])
+    private let repository: LibraryRepository
+    private let importer = AudioImporter()
     @Published var currentID: UUID?
     @Published var playing = false
     let clock = PlaybackClock()
@@ -18,22 +22,23 @@ import ImageIO
     @Published var shuffle = false
     @Published var repeatOne = false
     private let player = AVPlayer()
-    private var queue: [UUID] = []
+    private var queue = PlaybackQueue()
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var stateObserver: NSKeyValueObservation?
     private var itemObserver: NSKeyValueObservation?
     private var failureObserver: NSObjectProtocol?
+    private var sessionObservers: [NSObjectProtocol] = []
+    private var remoteTargets: [(MPRemoteCommand, Any)] = []
+    private var wantsPlayback = false
+    private var resumeAfterInterruption = false
+    private var systemArtworkID: UUID?
+    private var artworkTask: Task<Void, Never>?
     private let root: URL
-    private let fm = FileManager.default
-    var current: Track? { tracks.first { $0.id == currentID } }
+    var current: Track? { currentID.flatMap { index.byID[$0] } }
     init() {
-        root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("AuralLibrary", isDirectory: true)
-        do {
-            try fm.createDirectory(at: root, withIntermediateDirectories: true)
-            let index = root.appendingPathComponent("library.json")
-            if fm.fileExists(atPath: index.path) { tracks = try JSONDecoder().decode([Track].self, from: Data(contentsOf: index)) }
-        } catch { message = "Library could not be opened: \(error.localizedDescription)" }
+        root = URL.applicationSupportDirectory.appendingPathComponent("AuralLibrary", isDirectory: true)
+        repository = LibraryRepository(root: root)
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main) { [weak self] time in
             Task { @MainActor in
                 guard let self else { return }
@@ -50,7 +55,7 @@ import ImageIO
         failureObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemFailedToPlayToEndTime, object: nil, queue: .main) { [weak self] note in
             Task { @MainActor in
                 guard let self, (note.object as? AVPlayerItem) === self.player.currentItem else { return }
-                self.player.pause(); self.message = "Playback failed. Try another track."
+                self.pause(); self.message = "Playback failed. Try another track."
             }
         }
         stateObserver = player.observe(\.timeControlStatus, options: [.initial,.new]) { [weak self] _,_ in
@@ -60,85 +65,151 @@ import ImageIO
                 self.updateSystem()
             }
         }
+        let center = NotificationCenter.default
+        sessionObservers.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
+            let type = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            let options = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            Task { @MainActor in self?.handleInterruption(type: type, options: options) }
+        })
+        sessionObservers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] note in
+            let reason = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+            Task { @MainActor in
+                if reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue { self?.pause() }
+            }
+        })
         let remote = MPRemoteCommandCenter.shared()
-        remote.playCommand.addTarget { [weak self] _ in Task { @MainActor in self?.resume() }; return .success }
-        remote.pauseCommand.addTarget { [weak self] _ in Task { @MainActor in self?.player.pause() }; return .success }
-        remote.nextTrackCommand.addTarget { [weak self] _ in Task { @MainActor in self?.advance(1) }; return .success }
-        remote.previousTrackCommand.addTarget { [weak self] _ in Task { @MainActor in self?.advance(-1) }; return .success }
-        remote.changePlaybackPositionCommand.addTarget { [weak self] event in
+        func register(_ command: MPRemoteCommand, _ action: @escaping () -> Void) {
+            let token = command.addTarget { _ in
+                Task { @MainActor in action() }
+                return .success
+            }
+            remoteTargets.append((command, token))
+            command.isEnabled = false
+        }
+        register(remote.playCommand) { [weak self] in self?.resume() }
+        register(remote.pauseCommand) { [weak self] in self?.pause() }
+        register(remote.nextTrackCommand) { [weak self] in self?.advance(1) }
+        register(remote.previousTrackCommand) { [weak self] in self?.advance(-1) }
+        let token = remote.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
             let seconds = event.positionTime
-            Task { @MainActor in self?.seek(seconds) }; return .success
+            Task { @MainActor in self?.seek(seconds) }
+            return .success
         }
+        remoteTargets.append((remote.changePlaybackPositionCommand, token))
+        remote.changePlaybackPositionCommand.isEnabled = false
+        Task { [weak self] in await self?.openLibrary() }
     }
-    func save() { do { try JSONEncoder().encode(tracks).write(to: root.appendingPathComponent("library.json"), options: .atomic) } catch { message = "Could not save library: \(error.localizedDescription)" } }
-    func artworkURL(_ track: Track) -> URL? { track.artwork.map { root.appendingPathComponent($0) } }
-    func importFiles(_ urls: [URL]) async {
-        guard !importing else { return }; importing = true; defer { importing = false }
-        let base = root
-        var errors: [String] = []
-        for url in urls {
-            do {
-                let track = try await Task.detached(priority: .userInitiated) { try await Self.readFile(url, into: base) }.value
-                tracks.append(track); save()
-            } catch { errors.append("\(url.lastPathComponent): \(error.localizedDescription)") }
+
+    deinit {
+        if let timeObserver { player.removeTimeObserver(timeObserver) }
+        for token in [endObserver, failureObserver].compactMap({ $0 }) + sessionObservers {
+            NotificationCenter.default.removeObserver(token)
         }
-        if !errors.isEmpty { message = errors.joined(separator: "\n") }
+        for (command, token) in remoteTargets { command.removeTarget(token) }
+        stateObserver?.invalidate()
+        itemObserver?.invalidate()
+        artworkTask?.cancel()
     }
-    nonisolated private static func readFile(_ url: URL, into root: URL) async throws -> Track {
-        let fm = FileManager.default
-        let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }
-        let id = UUID()
-        let name = id.uuidString + "." + url.pathExtension.lowercased()
-        let destination = root.appendingPathComponent(name)
-        var artName: String?
+
+    private func openLibrary() async {
+        defer { libraryLoading = false }
         do {
-            var coordinationError: NSError?
-            var copyError: Error?
-            NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinationError) { readable in
-                do { try fm.copyItem(at: readable, to: destination) } catch { copyError = error }
+            apply(try await repository.load())
+            libraryReady = true
+        } catch {
+            message = "Library could not be opened. Existing files are protected.\n\(error.localizedDescription)"
+        }
+    }
+
+    private func apply(_ next: [Track]) {
+        index = LibraryIndex(next)
+        tracks = next
+    }
+
+    private func commit(_ next: [Track]) async throws {
+        try await repository.commit(next)
+        apply(next)
+    }
+
+    func artworkURL(_ track: Track) -> URL? {
+        track.artwork.map { root.appendingPathComponent($0) }
+    }
+
+    func importFiles(_ urls: [URL]) async {
+        guard libraryReady, !mutationBusy else { return }
+        importing = true
+        mutationBusy = true
+        defer { importing = false; mutationBusy = false }
+        var next = tracks
+        var pending: [Track] = []
+        var hashes = Set(next.compactMap(\.contentHash))
+        var errors: [String] = []
+        var duplicates = 0
+        do {
+            for i in next.indices where next[i].contentHash == nil {
+                try Task.checkCancellation()
+                do {
+                    let digest = try await importer.digest(root.appendingPathComponent(next[i].file))
+                    next[i].contentHash = digest
+                    hashes.insert(digest)
+                } catch is CancellationError { throw CancellationError() }
+                catch { errors.append("Could not verify \(next[i].title): \(error.localizedDescription)") }
             }
-            if let coordinationError { throw coordinationError }; if let copyError { throw copyError }
-            let asset = AVURLAsset(url: destination)
-            let playable = try await asset.load(.isPlayable)
-            let audio = try await asset.loadTracks(withMediaType: .audio)
-            guard playable, !audio.isEmpty else { throw NSError(domain: "Aural", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unsupported audio format or damaged file"]) }
-            let d = try await asset.load(.duration).seconds
-            let metadata = (try? await asset.load(.commonMetadata)) ?? []
-            func value(_ key: AVMetadataKey) async -> String? {
-                guard let item = AVMetadataItem.metadataItems(from: metadata, withKey: key, keySpace: .common).first else { return nil }
-                return try? await item.load(.stringValue)
-            }
-            let filename = url.deletingPathExtension().lastPathComponent
-            let parts = filename.components(separatedBy: " - ")
-            let title = await value(.commonKeyTitle) ?? (parts.count == 2 ? parts[1] : filename)
-            let artist = await value(.commonKeyArtist) ?? (parts.count == 2 ? parts[0] : "Unknown artist")
-            let album = await value(.commonKeyAlbumName) ?? "Unknown album"
-            if let item = AVMetadataItem.metadataItems(from: metadata, withKey: AVMetadataKey.commonKeyArtwork, keySpace: .common).first,
-               let data = try? await item.load(.dataValue), data.count <= 20_000_000 {
-                // Downsample off the main actor using ImageIO, not a full-size decoded bitmap.
-                if let jpeg = thumbnail(data) {
-                    let art = id.uuidString + ".jpg"
-                    try jpeg.write(to: root.appendingPathComponent(art), options: .atomic); artName = art
+            for url in urls {
+                try Task.checkCancellation()
+                do {
+                    if let track = try await importer.readFile(url, into: root, knownHashes: hashes) {
+                        pending.append(track)
+                        next.append(track)
+                        if let hash = track.contentHash { hashes.insert(hash) }
+                    } else { duplicates += 1 }
+                } catch is CancellationError { throw CancellationError() }
+                catch { errors.append("\(url.lastPathComponent): \(error.localizedDescription)") }
+                if pending.count >= 16 {
+                    try await commit(next)
+                    pending.removeAll(keepingCapacity: true)
                 }
             }
-            return Track(id: id, file: name, title: title, artist: artist, album: album, duration: d.isFinite ? max(0,d) : 0, artwork: artName)
-        } catch { try? fm.removeItem(at: destination); if let artName { try? fm.removeItem(at: root.appendingPathComponent(artName)) }; throw error }
+            if next != tracks { try await commit(next) }
+            pending.removeAll()
+        } catch {
+            for track in pending {
+                do { try await repository.removeMedia(track) }
+                catch { errors.append("Could not clean up \(track.title): \(error.localizedDescription)") }
+            }
+            errors.append(error.localizedDescription)
+        }
+        if duplicates > 0 { errors.append("\(duplicates) duplicate file(s) skipped.") }
+        if !errors.isEmpty { message = errors.joined(separator: "\n") }
     }
-    nonisolated private static func thumbnail(_ data: Data) -> Data? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil), let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 1000, kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary) else { return nil }
-        let output = NSMutableData()
-        guard let dest = CGImageDestinationCreateWithData(output, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
-        CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.88] as CFDictionary)
-        guard CGImageDestinationFinalize(dest) else { return nil }; return output as Data
+
+    private func handleInterruption(type: UInt?, options: UInt) {
+        if type == AVAudioSession.InterruptionType.began.rawValue {
+            resumeAfterInterruption = wantsPlayback
+            wantsPlayback = false
+            player.pause()
+        } else if type == AVAudioSession.InterruptionType.ended.rawValue {
+            let resumePlayback = resumeAfterInterruption && AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume)
+            resumeAfterInterruption = false
+            if resumePlayback { resume() }
+        }
     }
+
+    private func pause() {
+        wantsPlayback = false
+        resumeAfterInterruption = false
+        player.pause()
+    }
+
     func play(_ track: Track, in list: [Track]) {
-        queue = list.map(\.id); if shuffle { queue = [track.id] + queue.filter { $0 != track.id }.shuffled() }; load(track)
+        guard let selected = index.byID[track.id] else { return }
+        if load(selected) { queue.replace(list.map(\.id).filter { index.byID[$0] != nil }, current: selected.id, shuffled: shuffle) }
     }
-    private func load(_ track: Track) {
+    @discardableResult private func load(_ track: Track) -> Bool {
         do { try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default); try AVAudioSession.sharedInstance().setActive(true) }
-        catch { message = error.localizedDescription; return }
-        player.pause(); currentID = track.id; elapsed = 0; duration = track.duration
+        catch { message = error.localizedDescription; return false }
+        pause(); currentID = track.id; elapsed = 0; duration = track.duration
         let item = AVPlayerItem(url: root.appendingPathComponent(track.file)); player.replaceCurrentItem(with: item)
         itemObserver = item.observe(\.status, options: [.initial,.new]) { [weak self] item, _ in
             Task { @MainActor in
@@ -146,36 +217,91 @@ import ImageIO
                 if item.status == .failed { self.player.pause(); self.message = item.error?.localizedDescription ?? "Unable to play this file." }
             }
         }
+        wantsPlayback = true
         player.play(); updateSystem()
+        return true
     }
-    func resume() { guard currentID != nil else { return }; do { try AVAudioSession.sharedInstance().setActive(true); player.play() } catch { message = error.localizedDescription } }
-    func toggle() { if player.rate != 0 { player.pause() } else { resume() } }
+    func resume() { guard currentID != nil else { return }; do { try AVAudioSession.sharedInstance().setActive(true); wantsPlayback = true; player.play() } catch { message = error.localizedDescription } }
+    func toggle() { if wantsPlayback { pause() } else { resume() } }
     func seek(_ seconds: Double) { guard duration > 0, seconds.isFinite else { return }; let time = min(duration,max(0,seconds)); player.seek(to: CMTime(seconds: time, preferredTimescale: 600)); elapsed = time; updateSystem() }
     func advance(_ direction: Int, automatic: Bool = false) {
-        guard let currentID, let index = queue.firstIndex(of: currentID) else { return }
+        guard let currentID else { return }
         if direction < 0, elapsed > 3 { seek(0); return }
-        let next = index + direction
-        if !queue.indices.contains(next) { if automatic { player.pause(); seek(0) }; return }
-        if let track = tracks.first(where: { $0.id == queue[next] }) { load(track) }
+        if let id = queue.adjacent(to: currentID, direction: direction), let track = index.byID[id] { load(track) }
+        else if automatic { pause(); seek(0) }
     }
-    func favorite(_ track: Track) { if let index = tracks.firstIndex(where: { $0.id == track.id }) { tracks[index].favorite.toggle(); save() } }
+
+    func favorite(_ track: Track) {
+        guard libraryReady, !mutationBusy, let i = tracks.firstIndex(where: { $0.id == track.id }) else { return }
+        mutationBusy = true
+        var next = tracks
+        next[i].favorite.toggle()
+        Task {
+            defer { mutationBusy = false }
+            do { try await commit(next) }
+            catch { message = "Favorite was not saved: \(error.localizedDescription)" }
+        }
+    }
+
     func remove(_ track: Track) {
-        if currentID == track.id { player.pause(); player.replaceCurrentItem(with: nil); currentID = nil; elapsed = 0; duration = 0; MPNowPlayingInfoCenter.default().nowPlayingInfo = nil }
-        queue.removeAll { $0 == track.id }; tracks.removeAll { $0.id == track.id }; save()
-        try? fm.removeItem(at: root.appendingPathComponent(track.file)); if let art = artworkURL(track) { try? fm.removeItem(at: art) }
+        guard libraryReady, !mutationBusy, let stored = index.byID[track.id] else { return }
+        mutationBusy = true
+        let next = tracks.filter { $0.id != stored.id }
+        Task {
+            defer { mutationBusy = false }
+            do { try await commit(next) }
+            catch { message = "Track was not removed: \(error.localizedDescription)"; return }
+            if currentID == stored.id {
+                pause()
+                player.replaceCurrentItem(with: nil)
+                itemObserver?.invalidate()
+                currentID = nil
+                playing = false
+                elapsed = 0
+                duration = 0
+                artworkTask?.cancel()
+                systemArtworkID = nil
+                for (command, _) in remoteTargets { command.isEnabled = false }
+                MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            }
+            queue.remove(stored.id)
+            do { try await repository.removeMedia(stored) }
+            catch { message = "Track removed from index; media cleanup failed: \(error.localizedDescription)" }
+        }
     }
+
     func toggleShuffle() {
-        shuffle.toggle(); guard let currentID else { return }
-        if shuffle { queue = [currentID] + queue.filter { $0 != currentID }.shuffled() }
-        else { let ids = Set(queue); queue = tracks.filter { ids.contains($0.id) }.map(\.id) }
+        shuffle.toggle()
+        if let currentID { queue.setShuffle(shuffle, current: currentID) }
     }
+
     private func updateSystem() {
         guard let current else { return }
-        var info: [String: Any] = [MPMediaItemPropertyTitle: current.title, MPMediaItemPropertyArtist: current.artist, MPMediaItemPropertyAlbumTitle: current.album, MPMediaItemPropertyPlaybackDuration: duration, MPNowPlayingInfoPropertyElapsedPlaybackTime: elapsed, MPNowPlayingInfoPropertyPlaybackRate: playing ? 1.0 : 0.0]
-        // Reuse already registered artwork when the song does not change.
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: current.title,
+            MPMediaItemPropertyArtist: current.artist,
+            MPMediaItemPropertyAlbumTitle: current.album,
+            MPMediaItemPropertyPlaybackDuration: duration,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: elapsed,
+            MPNowPlayingInfoPropertyPlaybackRate: playing ? 1.0 : 0.0
+        ]
         let center = MPNowPlayingInfoCenter.default()
-        if center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String == current.title, let art = center.nowPlayingInfo?[MPMediaItemPropertyArtwork] { info[MPMediaItemPropertyArtwork] = art }
-        else if let url = artworkURL(current), let image = UIImage(contentsOfFile: url.path) { info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image } }
+        if systemArtworkID == current.id {
+            info[MPMediaItemPropertyArtwork] = center.nowPlayingInfo?[MPMediaItemPropertyArtwork]
+        } else {
+            systemArtworkID = current.id
+            artworkTask?.cancel()
+            if let url = artworkURL(current) {
+                artworkTask = Task { [weak self] in
+                    let image = await ArtworkCache.shared.image(at: url, maxPixelSize: 512)
+                    guard !Task.isCancelled, let self, self.currentID == current.id, let image else { return }
+                    var updated = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+                    updated[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                    MPNowPlayingInfoCenter.default().nowPlayingInfo = updated
+                }
+            }
+        }
+        for (command, _) in remoteTargets { command.isEnabled = true }
         center.nowPlayingInfo = info
     }
 }

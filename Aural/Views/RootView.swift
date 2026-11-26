@@ -1,10 +1,5 @@
 import SwiftUI
-import AVFoundation
-import MediaPlayer
 import UniformTypeIdentifiers
-import Combine
-import UIKit
-import ImageIO
 
 struct RootView: View {
     @EnvironmentObject var store: MusicStore
@@ -13,12 +8,12 @@ struct RootView: View {
     @State private var search = ""
     @State private var showFiles = false
     @State private var showPlayer = false
-    var filtered: [Track] { store.tracks.filter { (tab != 1 || $0.favorite) && (search.isEmpty || "\($0.title) \($0.artist) \($0.album)".localizedCaseInsensitiveContains(search)) } }
+    var filtered: [Track] { store.index.filter(search, favoritesOnly: tab == 1) }
     var body: some View {
         TabView(selection: $tab) {
             NavigationStack { library }.tabItem { Label("Library", systemImage: "books.vertical") }.tag(0)
             NavigationStack { trackList(filtered).navigationTitle("Favorites") }.tabItem { Label("Favorites", systemImage: "heart") }.tag(1)
-            NavigationStack { Form { Section("Aural Native") { Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.1") · Build \(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1")"); Text("Local playback · No accounts or streaming"); Text("Files are copied into Aural's private storage. Keep your originals.") }; Section("Library") { Text("\(store.tracks.count) tracks"); Button("Add music") { showFiles = true } } }.navigationTitle("Settings") }.tabItem { Label("Settings", systemImage: "gearshape") }.tag(2)
+            NavigationStack { Form { Section("Aural Native") { Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown") · Build \(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1")"); Text("Local playback · No accounts or streaming"); Text("Files are copied into Aural's private storage. Keep your originals.") }; Section("Library") { Text("\(store.tracks.count) tracks"); Button("Add music") { showFiles = true }.disabled(!store.libraryReady || store.mutationBusy) } }.navigationTitle("Settings") }.tabItem { Label("Settings", systemImage: "gearshape") }.tag(2)
         }
         .tint(.mint)
         .tabViewBottomAccessory(isEnabled: store.current != nil) { if let track = store.current { mini(track) } }
@@ -32,22 +27,32 @@ struct RootView: View {
         VStack(spacing: 0) {
             Picker("Library view", selection: $category) { ForEach(["Albums","Artists","Songs"], id: \.self) { Text($0) } }.pickerStyle(.segmented).padding(.horizontal).padding(.vertical, 8)
             if store.importing { ProgressView("Importing music…").padding(6) }
-            if filtered.isEmpty { ContentUnavailableView("No music", systemImage: "music.note.list", description: Text("Add audio files from Files to get started.")) }
+            if store.libraryLoading { ProgressView("Opening library…").frame(maxWidth: .infinity, maxHeight: .infinity) }
+            else if !store.libraryReady { ContentUnavailableView("Library unavailable", systemImage: "exclamationmark.triangle", description: Text("Existing files are protected. No changes can be made.")) }
+            else if filtered.isEmpty { ContentUnavailableView("No music", systemImage: "music.note.list", description: Text("Add audio files from Files to get started.")) }
             else if category == "Songs" { trackList(filtered) }
             else { groups }
-        }.navigationTitle("Library").searchable(text: $search, prompt: "Search your music").toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showFiles = true } label: { Label("Add music", systemImage: "plus") }.disabled(store.importing) } }
+        }.navigationTitle("Library").searchable(text: $search, prompt: "Search your music").toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showFiles = true } label: { Label("Add music", systemImage: "plus") }.disabled(!store.libraryReady || store.mutationBusy) } }
     }
     var groups: some View {
-        let grouped = Dictionary(grouping: filtered) { track in category == "Artists" ? track.artist : (track.album == "Unknown album" ? track.title + " · " + track.artist : track.album + " · " + track.artist) }
-        return ScrollView { LazyVGrid(columns: [GridItem(.adaptive(minimum: 148), spacing: 14)], spacing: 18) {
-            ForEach(grouped.keys.sorted(), id: \.self) { key in
-                if let songs = grouped[key], let first = songs.first {
-                    NavigationLink { trackList(songs).navigationTitle(category == "Artists" ? first.artist : (first.album == "Unknown album" ? first.title : first.album)) } label: {
-                        VStack(alignment: .leading, spacing: 5) { Cover(url: store.artworkURL(first)).aspectRatio(1, contentMode: .fit); Text(category == "Artists" ? first.artist : (first.album == "Unknown album" ? first.title : first.album)).font(.headline).lineLimit(2); Text(category == "Artists" ? "\(songs.count) songs" : first.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1) }.foregroundStyle(.primary)
-                    }.buttonStyle(.plain)
+        let groups = store.index.groups(category: category, query: search)
+        return ScrollView {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 148), spacing: 14)], spacing: 18) {
+                ForEach(groups) { group in
+                    if let first = group.tracks.first {
+                        NavigationLink {
+                            trackList(group.tracks.compactMap { store.index.byID[$0.id] }).navigationTitle(group.title)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 5) {
+                                Cover(url: store.artworkURL(first)).aspectRatio(1, contentMode: .fit)
+                                Text(group.title).font(.headline).lineLimit(2)
+                                Text(group.subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                            }.foregroundStyle(.primary)
+                        }.buttonStyle(.plain)
+                    }
                 }
-            }
-        }.padding() }
+            }.padding()
+        }
     }
     func trackList(_ songs: [Track]) -> some View {
         List(songs) { track in
