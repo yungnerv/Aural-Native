@@ -75,4 +75,50 @@ final class NativeIntegrationTests: XCTestCase {
         try engine.resume()
         XCTAssertFalse(engine.wantsPlayback)
     }
+
+    @MainActor
+    func testReplacedItemCannotDeliverStaleEndOrFailure() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("fixture.wav")
+        try fixture(at: url)
+        let player = AVPlayer()
+        let engine = PlaybackEngine(player: player)
+        var ends = 0
+        var failures = 0
+        engine.onEnd = { ends += 1 }
+        engine.onFailure = { _ in failures += 1 }
+
+        try engine.prepare(url)
+        let oldItem = try XCTUnwrap(player.currentItem)
+        engine.start()
+        // Enqueue events before replacement; those already dispatched must also
+        // fail the generation check, not just notifications from removed observers.
+        NotificationCenter.default.post(name: .AVPlayerItemDidPlayToEndTime, object: oldItem)
+        NotificationCenter.default.post(name: .AVPlayerItemFailedToPlayToEndTime, object: oldItem)
+        try engine.prepare(url)
+        let currentItem = try XCTUnwrap(player.currentItem)
+        engine.start()
+        NotificationCenter.default.post(name: .AVPlayerItemDidPlayToEndTime, object: oldItem)
+        NotificationCenter.default.post(name: .AVPlayerItemDidPlayToEndTime, object: currentItem)
+        // Allow callbacks on the main actor, with a bounded timeout.
+        let deadline = ContinuousClock.now + .seconds(2)
+        while ends == 0 && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        engine.clear()
+        XCTAssertEqual(ends, 1)
+        XCTAssertEqual(failures, 0)
+    }
+
+    @MainActor
+    func testObserverOwnerReleasesAfterClear() throws {
+        let player = AVPlayer()
+        var engine: PlaybackEngine? = PlaybackEngine(player: player)
+        weak var weakEngine = engine
+        engine?.clear()
+        engine = nil
+        XCTAssertNil(weakEngine, "Observer callbacks must not retain their owner")
+    }
 }

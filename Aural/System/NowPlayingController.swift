@@ -18,7 +18,7 @@ import UIKit
         let gate = self.gate
         func register(_ command: MPRemoteCommand, _ kind: RemoteCommandGate.Command,
                       _ action: @escaping @MainActor @Sendable () -> Void) {
-            let token = command.addTarget { _ in
+            let token = command.addTarget { @Sendable _ in
                 guard let id = gate.accept(kind) else { return .commandFailed }
                 Task { @MainActor in
                     guard gate.isCurrent(id, command: kind) else { return }
@@ -33,7 +33,7 @@ import UIKit
         register(remote.pauseCommand, .pause, pause)
         register(remote.nextTrackCommand, .next, next)
         register(remote.previousTrackCommand, .previous, previous)
-        let token = remote.changePlaybackPositionCommand.addTarget { event in
+        let token = remote.changePlaybackPositionCommand.addTarget { @Sendable event in
             guard let event = event as? MPChangePlaybackPositionCommandEvent,
                   event.positionTime.isFinite, event.positionTime >= 0,
                   let id = gate.accept(.seek) else { return .commandFailed }
@@ -48,10 +48,14 @@ import UIKit
         remote.changePlaybackPositionCommand.isEnabled = false
     }
 
-    deinit {
+    isolated deinit {
         artworkTask?.cancel()
         gate.update(trackID: nil, available: [])
-        for (command, token, _) in targets { command.removeTarget(token) }
+        for (command, token, _) in targets {
+            command.isEnabled = false
+            command.removeTarget(token)
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
 
     func update(track: Track, elapsed: Double, duration: Double, playing: Bool,

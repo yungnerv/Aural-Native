@@ -10,6 +10,9 @@
 - Physical-device testing is mandatory before calling an audio or UI feature production-ready.
 
 - Keep Xcode and XcodeGen versions explicit; CI actions use reviewed immutable commit SHAs. Upgrade deliberately, not accidentally.
-- Run the simulator integration/launch suite and review concurrency warnings. Swift 6 language-mode migration requires a separate verified change.
+- Require Swift 6 language mode and warnings-as-errors. Resolve compiler diagnostics at their root; never suppress diagnostics, weaken tests or add unchecked isolation to hide defects. Run the simulator integration/launch suite.
 - Recovery must validate the backup, preserve the damaged index, refuse unsupported newer schemas and require user confirmation.
 - Download XcodeGen only from the reviewed versioned release with a pinned SHA-256 checksum; do not rely on mutable Homebrew formula versions.
+
+## Engineering acceptance principles
+Cleanliness, organization, lightweight resource use, simplicity, stability, measured performance, smoothness, fluidity, snappiness, seamless transitions, consistency, original audio fidelity, data integrity, root-cause resolution, maintainability and verification apply to every change. Preserve clean responsibility boundaries, avoid unnecessary code and dependencies, and measure responsiveness, frame pacing and resource use before making performance claims. Never mask defects for a green build.

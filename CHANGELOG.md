@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.2 — Swift 6 concurrency foundation
+- Isolate observer destruction on the owning main actor.
+- Scope item notifications to their registered item; transfer only immutable generation values to asynchronous callbacks.
+- Invalidate obsolete item, player and seek callbacks on replacement/reset.
+- Explicitly mark system callbacks Sendable and protect remote command state with a standard-library mutex.
+- Enable Swift 6 and warnings-as-errors for application, tests and portable Swift suite.
+- Add regression coverage for obsolete notifications and observer owner release.
+
 ## 0.2.1 — Foundation audit corrections
 - Independent stale-index verification before deletion; atomic first index and fail-closed UI state.
 - Explicit previous-index recovery with file validation and preservation of damaged bytes.
