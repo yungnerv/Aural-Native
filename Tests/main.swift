@@ -53,6 +53,8 @@ func runTests() async throws {
 
     let media = root.appendingPathComponent("test.FLAC")
     try Data("abc".utf8).write(to: media)
+    do { try await fresh.removeMedia(first); fatalError("Referenced media removed") } catch {}
+    check(FileManager.default.fileExists(atPath: media.path), "Referenced media protected")
     let digest = try FileDigest.sha256(media)
     check(digest == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "SHA-256 fixture")
 
@@ -71,6 +73,13 @@ func runTests() async throws {
     do { try await damaged.commit([]); fatalError("Corruption overwritten") } catch {}
     let preserved = try Data(contentsOf: url)
     check(preserved == broken, "Corrupt index untouched")
+    let orphanRoot = root.appendingPathComponent("orphan", isDirectory: true)
+    try FileManager.default.createDirectory(at: orphanRoot, withIntermediateDirectories: true)
+    try Data("original audio".utf8).write(to: orphanRoot.appendingPathComponent("song.mp3"))
+    let orphanRepo = LibraryRepository(root: orphanRoot)
+    do { _ = try await orphanRepo.load(); fatalError("Missing index treated as empty despite existing media") } catch {}
+    do { try await orphanRepo.commit([]); fatalError("Missing index overwritten") } catch {}
+    check(FileManager.default.fileExists(atPath: orphanRoot.appendingPathComponent("song.mp3").path), "Orphan preserved")
     print("PASS: model, queue, index, migration, atomic writes, corruption protection, digest")
 }
 try await runTests()

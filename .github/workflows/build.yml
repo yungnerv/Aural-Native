@@ -34,8 +34,6 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           bash Scripts/test.sh
       - name: Compile and package unsigned IPA
-        env:
-          APP_VERSION: ${{ steps.version.outputs.version }}
         run: bash Scripts/build.sh
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v6

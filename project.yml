@@ -22,7 +22,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: local.aural.player
-        MARKETING_VERSION: '0.2.0'
+        MARKETING_VERSION: '0.0.0' # Real version is supplied by Scripts/build.sh
         CURRENT_PROJECT_VERSION: '1'
         SWIFT_VERSION: '5.0'
         TARGETED_DEVICE_FAMILY: '1,2'

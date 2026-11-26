@@ -22,6 +22,7 @@ actor LibraryRepository {
     private let fm = FileManager.default
     private var opened = false
     private var previousBytes: Data?
+    private var committedNames = Set<String>()
     private var indexURL: URL { root.appendingPathComponent("library.json") }
     private var backupURL: URL { root.appendingPathComponent("library.previous.json") }
 
@@ -29,9 +30,12 @@ actor LibraryRepository {
 
     func load() throws -> [Track] {
         opened = false
+        committedNames.removeAll()
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         guard fm.fileExists(atPath: indexURL.path) else {
-            if fm.fileExists(atPath: backupURL.path) { throw Failure.invalidIndex }
+            // Missing index plus existing media is not a new empty library.
+            let existing = try fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+            if !existing.isEmpty { throw Failure.invalidIndex }
             previousBytes = nil
             opened = true
             return []
@@ -47,6 +51,7 @@ actor LibraryRepository {
         } else { throw Failure.invalidIndex }
         try Self.validate(tracks)
         previousBytes = bytes
+        committedNames = Self.names(tracks)
         opened = true
         return tracks
     }
@@ -60,6 +65,13 @@ actor LibraryRepository {
         if let previousBytes { try previousBytes.write(to: backupURL, options: .atomic) }
         try bytes.write(to: indexURL, options: .atomic)
         previousBytes = bytes
+        committedNames = Self.names(tracks)
+    }
+
+    func makeIndex(_ tracks: [Track]) -> LibraryIndex { LibraryIndex(tracks) }
+
+    private static func names(_ tracks: [Track]) -> Set<String> {
+        Set(tracks.flatMap { [$0.file, $0.artwork].compactMap { $0 } })
     }
 
     private static func validName(_ name: String) -> Bool {
@@ -80,8 +92,10 @@ actor LibraryRepository {
 
     /// Called only after an index deletion commits or an uncommitted import fails.
     func removeMedia(_ track: Track) throws {
-        for name in [track.file, track.artwork].compactMap({ $0 }) {
-            guard Self.validName(name) else { throw Failure.invalidIndex }
+        guard opened else { throw Failure.notOpen }
+        let names = [track.file, track.artwork].compactMap { $0 }
+        guard names.allSatisfy({ Self.validName($0) && !committedNames.contains($0) }) else { throw Failure.invalidIndex }
+        for name in names {
             let url = root.appendingPathComponent(name)
             if fm.fileExists(atPath: url.path) { try fm.removeItem(at: url) }
         }

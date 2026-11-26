@@ -4,7 +4,9 @@
 - Explicit bundle version keys and diagnostics; modern CI actions and separate scripts.
 - Asynchronous versioned storage, atomic writes, previous-index backup and corruption protection.
 - Serialized mutations, bounded import batches and streaming duplicate detection.
-- Separate importer, queue, library index and artwork cache; isolate progress view updates.
+- Separate importer, playback engine, queue, system controller, library index and artwork cache; isolate progress view updates.
+- Protect referenced media at the repository boundary; treat a missing index alongside media as a recovery condition.
+- Reject stale seeks and late artwork results; derive indexes off the main actor.
 - Restore queue ordering, register artwork by track ID, handle audio interruptions and clean up observers.
 - Expand portable regression tests and establish permanent development rules.
 - Native device testing remains outstanding.
