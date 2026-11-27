@@ -2,9 +2,13 @@
 import json
 import re
 import subprocess
+import sys
 
 
 def main():
+    family = sys.argv[1] if len(sys.argv) > 1 else "iPhone"
+    if family not in ("iPhone", "iPad"):
+        raise SystemExit("Expected iPhone or iPad")
     result = subprocess.check_output(
         ["xcrun", "simctl", "list", "devices", "available", "--json"],
         text=True,
@@ -19,10 +23,10 @@ def main():
         if version < (26, 1, 0):
             continue
         for entry in entries:
-            if entry.get("isAvailable") and entry["name"].startswith("iPhone"):
+            if entry.get("isAvailable") and entry["name"].startswith(family):
                 candidates.append((version, entry["name"], entry["udid"]))
     if not candidates:
-        raise SystemExit("No available iPhone simulator on iOS 26.1 or newer")
+        raise SystemExit(f"No available {family} simulator on iOS 26.1 or newer")
     print(sorted(candidates, reverse=True)[0][2])
 
 

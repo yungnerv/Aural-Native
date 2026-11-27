@@ -14,6 +14,8 @@ import Combine
     @Published private(set) var playbackRevision = 0
     @Published private(set) var playing = false
     @Published private(set) var importing = false
+    @Published private(set) var importProgress = 0.0
+    @Published private(set) var lastImportReport: [String] = []
     @Published var message: String?
     @Published private(set) var shuffle = false
     @Published var repeatOne = false
@@ -21,6 +23,7 @@ import Combine
     let clock = PlaybackClock()
     private let repository: LibraryRepository
     private let importer = AudioImporter()
+    private var importTask: Task<Void, Never>?
     private let engine = PlaybackEngine()
     private var system: NowPlayingController?
     private let root: URL
@@ -157,33 +160,53 @@ import Combine
         updateSystem()
     }
 
-    private func commit(_ next: [Track]) async throws {
+    @discardableResult
+    private func commit(_ next: [Track]) async throws -> [String] {
         let diagnostics: [String]
         do { diagnostics = try await repository.commit(next) }
         catch { reportMutationError(error); throw error }
         await apply(next)
-        if !diagnostics.isEmpty {
-            message = diagnostics.joined(separator: "\n")
-        }
+        return diagnostics
     }
 
     func artworkURL(_ track: Track) -> URL? {
         track.artwork.map { root.appendingPathComponent($0) }
     }
 
-    func importFiles(_ urls: [URL]) async {
+    func beginImport(_ urls: [URL]) {
+        guard importTask == nil, !urls.isEmpty else { return }
+        importTask = Task { [weak self] in
+            guard let self else { return }
+            await self.importFiles(urls)
+            self.importTask = nil
+        }
+    }
+
+    func cancelImport() {
+        importTask?.cancel()
+    }
+
+    private func importFiles(_ urls: [URL]) async {
         guard libraryReady, !mutationBusy else {
             message = libraryReady ? "Wait for the current library operation to finish." : "Reopen the library before importing."
             return
         }
         importing = true
+        importProgress = 0
+        lastImportReport = []
         mutationBusy = true
-        defer { importing = false; mutationBusy = false }
+        defer {
+            importing = false
+            mutationBusy = false
+            importProgress = 0
+        }
         var next = tracks
         var pending: [Track] = []
         var hashes = Set(next.compactMap(\.contentHash))
         var errors: [String] = []
         var duplicates = 0
+        var processed = 0
+        var lastUpdate = ContinuousClock.now
         do {
             for i in next.indices where next[i].contentHash == nil {
                 try Task.checkCancellation()
@@ -204,24 +227,41 @@ import Combine
                     } else { duplicates += 1 }
                 } catch is CancellationError { throw CancellationError() }
                 catch { errors.append("\(url.lastPathComponent): \(error.localizedDescription)") }
+                processed += 1
+                if ContinuousClock.now - lastUpdate >= .milliseconds(100) || processed == urls.count {
+                    importProgress = Double(processed) / Double(urls.count)
+                    lastUpdate = ContinuousClock.now
+                }
                 // Bound uncommitted imports while reducing whole-index writes.
                 let batchSize = min(128, max(16, next.count / 64))
                 if pending.count >= batchSize {
-                    try await commit(next)
+                    try Task.checkCancellation()
+                    errors += try await commit(next)
                     pending.removeAll(keepingCapacity: true)
                 }
             }
-            if next != tracks { try await commit(next) }
+            try Task.checkCancellation()
+            if next != tracks { errors += try await commit(next) }
             pending.removeAll()
         } catch {
             for track in pending {
                 do { try await repository.removeMedia(track) }
                 catch { reportMutationError(error); errors.append("Could not clean up \(track.title): \(error.localizedDescription)") }
             }
-            errors.append(error.localizedDescription)
+            if error is CancellationError {
+                errors.append("Import cancelled. Successfully committed tracks were kept.")
+            } else {
+                errors.append(error.localizedDescription)
+            }
         }
         if duplicates > 0 { errors.append("\(duplicates) duplicate file(s) skipped.") }
-        if !errors.isEmpty { message = errors.joined(separator: "\n") }
+        if !errors.isEmpty {
+            lastImportReport = errors
+            let preview = errors.prefix(4).joined(separator: "\n")
+            message = errors.count > 4
+                ? "\(preview)\n\(errors.count - 4) more entries in Settings → Last import report."
+                : preview
+        }
     }
 
     func play(_ track: Track, in list: [Track]) {
@@ -284,8 +324,12 @@ import Combine
         next[i].favorite.toggle()
         Task {
             defer { mutationBusy = false }
-            do { try await commit(next) }
-            catch { message = "Favorite was not saved: \(error.localizedDescription)" }
+            do {
+                let diagnostics = try await commit(next)
+                if !diagnostics.isEmpty { message = diagnostics.joined(separator: "\n") }
+            } catch {
+                message = "Favorite was not saved: \(error.localizedDescription)"
+            }
         }
     }
 
@@ -296,11 +340,16 @@ import Combine
         let next = tracks.filter { $0.id != stored.id }
         Task {
             defer { mutationBusy = false }
-            do { try await commit(next) }
+            var diagnostics: [String]
+            do { diagnostics = try await commit(next) }
             catch { message = "Track was not removed: \(error.localizedDescription)"; return }
             queue.remove(stored.id)
             do { try await repository.removeMedia(stored) }
-            catch { reportMutationError(error); message = "Track removed from index; media cleanup failed: \(error.localizedDescription)" }
+            catch {
+                reportMutationError(error)
+                diagnostics.append("Track removed from index; media cleanup failed: \(error.localizedDescription)")
+            }
+            if !diagnostics.isEmpty { message = diagnostics.joined(separator: "\n") }
         }
     }
 

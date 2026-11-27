@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.3.0 — Foundation hardening
+- Add throttled import progress, cancellation with committed-batch retention, and a full diagnostic report behind concise alerts.
+- Use the pinned Xcode toolchain for host tests, explicit simulator architecture and separate iPad launch validation.
+- Add a 16-file non-silent PCM byte-preservation simulator benchmark and host snapshot-search measurement.
 - Search immutable snapshots off the main actor with cancellation and revision checks; use typed categories and precomputed favorites.
 - Reduce full-index updates with bounded adaptive import batches; remove duplicate track-array state and publish navigation availability only on change.
 - Use playback revision tickets for remote commands and scrubbing, reject seeks without an item, and reprepare failed items on explicit resume.

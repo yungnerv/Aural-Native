@@ -232,6 +232,10 @@ func runTests() async throws {
     check(reloaded == large && indexed.byID.count == 10_000, "10k track round trip")
     check(indexed.filter("", favoritesOnly: true).count == 1_000, "10k track favorites")
     check(indexed.groups(category: .artists, query: "").count == 100, "10k artist groups")
+    let searchStart = ContinuousClock.now
+    let largeResults = try indexed.search("Artist 42", category: .albums)
+    check(largeResults.tracks.count == 100, "10k snapshot search")
+    print("10k metadata search: \(ContinuousClock.now - searchStart) (host only)")
     print("10k metadata fixture commit/reload/index: \(Date().timeIntervalSince(started)) seconds (host only)")
     print("PASS: storage, migration, independent stale deletion, explicit recovery, path guards, 10k fixture, queue, index, digest")
 }

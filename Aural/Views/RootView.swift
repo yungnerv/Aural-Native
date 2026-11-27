@@ -38,12 +38,14 @@ struct RootView: View {
         TabView(selection: $tab) {
             NavigationStack { library }.tabItem { Label("Library", systemImage: "books.vertical") }.tag(0)
             NavigationStack { favorites.navigationTitle("Favorites") }.tabItem { Label("Favorites", systemImage: "heart") }.tag(1)
-            NavigationStack { Form { Section("Aural Native") { Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown") · Build \(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1")"); Text("Local playback · No accounts or streaming"); Text("Files are copied into Aural's private storage. Keep your originals.") }; Section("Library") { Text("\(store.tracks.count) tracks"); Button("Add music") { showFiles = true }.disabled(!store.libraryReady || store.mutationBusy) } }.navigationTitle("Settings") }.tabItem { Label("Settings", systemImage: "gearshape") }.tag(2)
+            NavigationStack { settings }
+                .tabItem { Label("Settings", systemImage: "gearshape") }
+                .tag(2)
         }
         .tint(.mint)
         .tabViewBottomAccessory(isEnabled: store.current != nil) { if let track = store.current { mini(track) } }
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.audio], allowsMultipleSelection: true) { result in
-            switch result { case .success(let urls): Task { await store.importFiles(urls) }; case .failure(let error): store.message = error.localizedDescription }
+            switch result { case .success(let urls): store.beginImport(urls); case .failure(let error): store.message = error.localizedDescription }
         }
         .sheet(isPresented: $showPlayer) { PlayerView(progress: store.clock).environmentObject(store) }
         .confirmationDialog("Restore previous library index?", isPresented: $confirmRecovery, titleVisibility: .visible) {
@@ -55,7 +57,17 @@ struct RootView: View {
     var library: some View {
         VStack(spacing: 0) {
             Picker("Library view", selection: $category) { ForEach(LibraryCategory.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented).padding(.horizontal).padding(.vertical, 8)
-            if store.importing { ProgressView("Importing music…").padding(6) }
+            if store.importing {
+                HStack(spacing: 12) {
+                    ProgressView(value: store.importProgress) {
+                        Text("Importing music…")
+                    }
+                    Button("Cancel", role: .cancel) { store.cancelImport() }
+                        .font(.subheadline)
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+            }
             if store.libraryLoading { ProgressView("Opening library…").frame(maxWidth: .infinity, maxHeight: .infinity) }
             else if !store.libraryReady {
                 ContentUnavailableView {
@@ -96,6 +108,34 @@ struct RootView: View {
         }
         .navigationTitle("Library").searchable(text: $search, prompt: "Search your music").toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showFiles = true } label: { Label("Add music", systemImage: "plus") }.disabled(!store.libraryReady || store.mutationBusy) } }
     }
+    private var settings: some View {
+        Form {
+            Section("Aural Native") {
+                let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"
+                let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unknown"
+                Text("Version \(version) · Build \(build)")
+                Text("Local playback · No accounts or streaming")
+                Text("Files are copied into Aural's private storage. Keep your originals.")
+            }
+            Section("Library") {
+                Text("\(store.tracks.count) tracks")
+                Button("Add music") { showFiles = true }
+                    .disabled(!store.libraryReady || store.mutationBusy)
+                if !store.lastImportReport.isEmpty {
+                    NavigationLink("Last import report") {
+                        List {
+                            ForEach(Array(store.lastImportReport.enumerated()), id: \.offset) { _, entry in
+                                Text(entry)
+                            }
+                        }
+                        .navigationTitle("Import report")
+                    }
+                }
+            }
+        }
+        .navigationTitle("Settings")
+    }
+
     private var favorites: some View {
         Group {
             if store.libraryLoading {

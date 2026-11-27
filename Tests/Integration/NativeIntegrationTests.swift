@@ -76,6 +76,39 @@ final class NativeIntegrationTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
     }
 
+    func testBatchImportPreservesDistinctAudio() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let library = root.appendingPathComponent("library", isDirectory: true)
+        try FileManager.default.createDirectory(at: library, withIntermediateDirectories: true)
+        let importer = AudioImporter()
+        var hashes = Set<String>()
+        let started = ContinuousClock.now
+        for index in 0..<16 {
+            let source = root.appendingPathComponent("Track-\(index).wav")
+            let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1))
+            let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4_410))
+            buffer.frameLength = 4_410
+            let samples = try XCTUnwrap(buffer.floatChannelData?[0])
+            for frame in 0..<4_410 {
+                samples[frame] = Float(sin(Double(frame) * Double(index + 1) * 0.01) * 0.1)
+            }
+            do {
+                let file = try AVAudioFile(forWriting: source, settings: format.settings)
+                try file.write(from: buffer)
+            }
+            let imported = try await importer.readFile(source, into: library, knownHashes: hashes)
+            let track = try XCTUnwrap(imported)
+            XCTAssertEqual(try Data(contentsOf: source), try Data(contentsOf: library.appendingPathComponent(track.file)))
+            let hash = try XCTUnwrap(track.contentHash)
+            XCTAssertTrue(hashes.insert(hash).inserted)
+        }
+        XCTAssertEqual(hashes.count, 16)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: library.path).count, 16)
+        print("16 distinct PCM imports on simulator: \(ContinuousClock.now - started)")
+    }
+
     @MainActor
     func testPlaybackIntentAndLifecycle() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
