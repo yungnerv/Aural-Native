@@ -26,7 +26,7 @@ struct TrackList: View {
                     Spacer(minLength: 0)
                     if selected {
                         Image(systemName: "waveform")
-                            .foregroundStyle(.mint)
+                            .foregroundStyle(.blue)
                             .accessibilityHidden(true)
                     }
                 }
@@ -37,6 +37,7 @@ struct TrackList: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .listRowBackground(Color.clear)
             .accessibilityLabel("\(track.title), \(track.artist)")
             .accessibilityIdentifier("track-\(track.id.uuidString)")
             .accessibilityAddTraits(selected ? .isSelected : [])
@@ -46,7 +47,7 @@ struct TrackList: View {
                     Label(track.favorite ? "Remove favorite" : "Favorite",
                           systemImage: track.favorite ? "heart.slash" : "heart")
                 }
-                .tint(.mint)
+                .tint(.blue)
                 .disabled(store.mutationBusy || !store.libraryReady)
             }
             .contextMenu {

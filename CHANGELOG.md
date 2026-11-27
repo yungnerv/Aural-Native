@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.12 — Charcoal backgrounds and native glass
+- Use a shared charcoal gradient behind app screens and scrolling track rows. Retain native Liquid Glass navigation and playback controls, with blue selection and a white primary transport button.
+
 ## 0.3.11 — Native music navigation
 - Open Albums, Artists, Songs, Favorites and Settings directly from the system tab bar. Each music browser keeps its own navigation and search state. Align the floating mini-player with the bottom tabs in portrait on iPhone 15 Pro Max.
 

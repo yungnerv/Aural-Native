@@ -83,7 +83,7 @@ struct LibraryBrowser: View {
             guard !Task.isCancelled, key == searchKey, let result else { return }
             searchSnapshot = SearchSnapshot(key: key, result: result)
         }
-        .navigationTitle(category.rawValue).searchable(text: $search, prompt: "Search your music").toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showFiles = true } label: { Label("Add music", systemImage: "plus") }.disabled(!store.libraryReady || store.mutationBusy) } }
+        .navigationTitle(category.rawValue).searchable(text: $search, prompt: "Search your music").toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showFiles = true } label: { Label("Add music", systemImage: "plus") }.tint(.primary).disabled(!store.libraryReady || store.mutationBusy) } }
     }
     var groups: some View {
         let groups = search.isEmpty ? store.index.groups(category: category) : matchingResult?.groups ?? []
@@ -99,6 +99,7 @@ struct LibraryBrowser: View {
                                     ContentUnavailableView("Group unavailable", systemImage: "music.note.list")
                                 }
                             }
+                            .musicBackground()
                         } label: {
                             VStack(alignment: .leading, spacing: 5) {
                                 Cover(url: store.artworkURL(first)).aspectRatio(1, contentMode: .fit)

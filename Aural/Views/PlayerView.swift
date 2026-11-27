@@ -40,6 +40,7 @@ struct PlayerView: View {
                     ContentUnavailableView("Nothing playing", systemImage: "music.note")
                 }
             }
+            .musicBackground()
             .navigationTitle("Now Playing")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -47,11 +48,12 @@ struct PlayerView: View {
                     Button { dismiss() } label: {
                         Label("Close player", systemImage: "chevron.down")
                     }
+                    .tint(.primary)
                     .accessibilityIdentifier("close-player")
                 }
             }
         }
-        .tint(.mint)
+        .tint(.blue)
     }
 
     private func artwork(_ track: Track, size: CGFloat) -> some View {
@@ -83,7 +85,7 @@ struct PlayerView: View {
                 }
                 .buttonStyle(.glass)
                 .buttonBorderShape(.circle)
-                .tint(track.favorite ? .mint : .primary)
+                .tint(track.favorite ? .blue : .primary)
                 .accessibilityLabel(track.favorite ? "Remove favorite" : "Favorite")
                 .accessibilityAddTraits(track.favorite ? .isSelected : [])
                 .disabled(store.mutationBusy || !store.libraryReady)
@@ -121,7 +123,8 @@ struct PlayerView: View {
                         .frame(width: 54, height: 54)
                 }
                 .buttonStyle(.glassProminent)
-                .tint(.mint)
+                .tint(.white)
+                .foregroundStyle(.black)
                 .accessibilityLabel(store.playing ? "Pause" : "Play")
                 .accessibilityIdentifier("player-toggle")
                 .disabled(!store.canToggle)
@@ -150,7 +153,7 @@ struct PlayerView: View {
                         .frame(width: 30, height: 30)
                 }
                 .buttonStyle(.glass)
-                .tint(store.shuffle ? .mint : .primary)
+                .tint(store.shuffle ? .blue : .primary)
                 .accessibilityLabel("Shuffle")
                 .accessibilityAddTraits(store.shuffle ? .isSelected : [])
 
@@ -160,7 +163,7 @@ struct PlayerView: View {
                         .frame(width: 30, height: 30)
                 }
                 .buttonStyle(.glass)
-                .tint(store.repeatOne ? .mint : .primary)
+                .tint(store.repeatOne ? .blue : .primary)
                 .accessibilityLabel("Repeat one")
                 .accessibilityAddTraits(store.repeatOne ? .isSelected : [])
             }

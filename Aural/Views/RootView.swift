@@ -29,7 +29,7 @@ struct RootView: View {
                 tabContent(.settings) { settings }
             }
         }
-        .tint(.mint)
+        .tint(.blue)
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.audio], allowsMultipleSelection: true) { result in
             switch result { case .success(let urls): store.beginImport(urls); case .failure(let error): store.message = error.localizedDescription }
         }
@@ -50,7 +50,7 @@ struct RootView: View {
     private func tabContent<Content: View>(
         _ selection: Destination, @ViewBuilder content: () -> Content
     ) -> some View {
-        NavigationStack { content() }
+        NavigationStack { content().musicBackground() }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if tab == selection, let track = store.current {
                     MiniPlayerView(track: track) { showPlayer = true }
@@ -90,6 +90,7 @@ struct RootView: View {
                                 Text(entry)
                             }
                         }
+                        .musicBackground()
                         .navigationTitle("Import report")
                     }
                 }
