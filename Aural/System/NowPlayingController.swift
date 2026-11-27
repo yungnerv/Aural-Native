@@ -82,7 +82,10 @@ import UIKit
             MPNowPlayingInfoPropertyPlaybackRate: playing ? 1.0 : 0.0
         ]
         gate.update(trackID: track.id, revision: revision, available: available)
-        for (command, _, kind) in targets { command.isEnabled = available.contains(kind) }
+        for (command, _, kind) in targets {
+            let enabled = available.contains(kind)
+            if command.isEnabled != enabled { command.isEnabled = enabled }
+        }
         publish()
     }
 
@@ -94,6 +97,7 @@ import UIKit
 
     func clear() {
         artworkTask?.cancel()
+        artworkTask = nil
         trackID = nil
         artwork = nil
         info = [:]
