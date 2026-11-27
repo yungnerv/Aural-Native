@@ -26,6 +26,7 @@ struct LibraryIndex: Sendable {
     let tracks: [Track]
     let favorites: [Track]
     let byID: [UUID: Track]
+    let positionByID: [UUID: Int]
     private let searchable: [UUID: String]
     private let albums: [Group]
     private let artists: [Group]
@@ -35,6 +36,7 @@ struct LibraryIndex: Sendable {
         self.tracks = tracks
         favorites = tracks.filter(\.favorite)
         byID = Dictionary(tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        positionByID = Dictionary(tracks.enumerated().map { ($0.element.id, $0.offset) }, uniquingKeysWith: { first, _ in first })
         searchable = Dictionary(tracks.map { track in
             let extra = [track.metadata?.albumArtist, track.metadata?.composer, track.metadata?.genre,
                          track.metadata?.releaseDate, track.metadata?.recordingDate].compactMap { $0 }
