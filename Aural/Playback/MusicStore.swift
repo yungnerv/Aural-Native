@@ -10,6 +10,7 @@ import Combine
     @Published private(set) var recoveryReport: LibraryRepository.RecoveryReport?
     @Published private(set) var mutationBusy = false
     @Published private(set) var currentID: UUID?
+    @Published private(set) var playbackRevision = 0
     @Published private(set) var playing = false
     @Published private(set) var importing = false
     @Published var message: String?
@@ -26,6 +27,9 @@ import Combine
     private var queue = PlaybackQueue()
     private var actualPlaying = false
     var current: Track? { currentID.flatMap { index.byID[$0] } }
+    var canAdvance: Bool { libraryReady && currentID.flatMap { queue.adjacent(to: $0, direction: 1) } != nil }
+    var canGoBack: Bool { libraryReady && (elapsed > 3 || currentID.flatMap { queue.adjacent(to: $0, direction: -1) } != nil) }
+    var canToggle: Bool { currentID != nil && (playing || libraryReady) }
 
     private var elapsed: Double {
         get { clock.elapsed }
@@ -52,13 +56,18 @@ import Combine
         }
         engine.onState = { [weak self] wanted, audible in
             guard let self else { return }
-            let changed = self.playing != wanted || self.actualPlaying != audible
+            let changed = self.playing != wanted || self.actualPlaying != audible ||
+                self.playbackRevision != self.engine.itemGeneration
+            if self.playbackRevision != self.engine.itemGeneration {
+                self.playbackRevision = self.engine.itemGeneration
+            }
             if self.playing != wanted { self.playing = wanted }
             if self.actualPlaying != audible { self.actualPlaying = audible }
             if changed { self.updateSystem() }
         }
         engine.onEnd = { [weak self] in
             guard let self else { return }
+            guard self.libraryReady else { self.engine.pause(); return }
             if self.repeatOne {
                 self.elapsed = 0
                 self.engine.seek(0, resumeAfterSeek: true)
@@ -84,8 +93,10 @@ import Combine
         do {
             await apply(try await repository.load())
             libraryReady = true
+            updateSystem()
         } catch {
             libraryReady = false
+            updateSystem()
             recoveryReport = try? await repository.inspectRecovery()
             message = "Library could not be opened. Existing files are protected.\n\(error.localizedDescription)"
         }
@@ -113,6 +124,7 @@ import Combine
                 await apply(restored)
                 recoveryReport = nil
                 libraryReady = true
+                updateSystem()
                 message = "Previous library index restored. Original files were preserved."
             } catch {
                 recoveryReport = try? await repository.inspectRecovery()
@@ -125,6 +137,7 @@ import Combine
         if let failure = error as? LibraryRepository.Failure, failure.requiresReopen {
             libraryReady = false
             recoveryReport = nil
+            updateSystem()
         }
     }
 
@@ -212,16 +225,17 @@ import Combine
 
     func play(_ track: Track, in list: [Track]) {
         guard libraryReady, let selected = index.byID[track.id] else { return }
-        if load(selected) {
-            queue.replace(list.map(\.id).filter { index.byID[$0] != nil }, current: selected.id, shuffled: shuffle)
-            updateSystem()
-        }
+        load(selected, replacementQueue: list.map(\.id).filter { index.byID[$0] != nil })
     }
 
-    @discardableResult private func load(_ track: Track) -> Bool {
+    @discardableResult private func load(_ track: Track, replacementQueue: [UUID]? = nil) -> Bool {
         do {
             try engine.prepare(root.appendingPathComponent(track.file))
+            if let replacementQueue {
+                queue.replace(replacementQueue, current: track.id, shuffled: shuffle)
+            }
             currentID = track.id
+            playbackRevision = engine.itemGeneration
             elapsed = 0
             duration = track.duration
             engine.start()
@@ -231,7 +245,7 @@ import Combine
     }
 
     func resume() {
-        guard currentID != nil else { return }
+        guard libraryReady, currentID != nil else { return }
         do { try engine.resume() } catch { message = error.localizedDescription }
     }
 
@@ -240,15 +254,21 @@ import Combine
     }
 
     func seek(_ seconds: Double) {
-        guard duration > 0, seconds.isFinite else { return }
+        guard libraryReady, duration > 0, seconds.isFinite else { return }
         let target = min(duration, max(0, seconds))
-        engine.seek(target)
+        guard engine.seek(target) else {
+            message = "Playback position is unavailable. Press Play to prepare the selected track."
+            return
+        }
         elapsed = target
         updateSystem()
     }
 
     func advance(_ direction: Int, automatic: Bool = false) {
-        guard let currentID else { return }
+        guard libraryReady, let currentID else {
+            if automatic { engine.pause() }
+            return
+        }
         if direction < 0, elapsed > 3 { seek(0); return }
         if let id = queue.adjacent(to: currentID, direction: direction), let track = index.byID[id] {
             if !load(track) && automatic { engine.pause() }
@@ -291,11 +311,13 @@ import Combine
 
     private func updateSystem() {
         guard let current else { return }
-        var available: Set<RemoteCommandGate.Command> = [playing ? .pause : .play]
-        if queue.adjacent(to: current.id, direction: 1) != nil { available.insert(.next) }
-        if elapsed > 3 || queue.adjacent(to: current.id, direction: -1) != nil { available.insert(.previous) }
-        if duration > 0 { available.insert(.seek) }
-        system?.update(track: current, elapsed: elapsed, duration: duration,
+        var available: Set<RemoteCommandGate.Command> = []
+        if playing { available.insert(.pause) }
+        else if libraryReady { available.insert(.play) }
+        if canAdvance { available.insert(.next) }
+        if canGoBack { available.insert(.previous) }
+        if libraryReady && duration > 0 { available.insert(.seek) }
+        system?.update(track: current, revision: playbackRevision, elapsed: elapsed, duration: duration,
                        playing: actualPlaying, available: available, artworkURL: artworkURL(current))
     }
 }

@@ -49,7 +49,8 @@ struct RootView: View {
                     }
                 }
             }
-            else if filtered.isEmpty { ContentUnavailableView("No music", systemImage: "music.note.list", description: Text("Add audio files from Files to get started.")) }
+            else if store.tracks.isEmpty { ContentUnavailableView("No music", systemImage: "music.note.list", description: Text("Add audio files from Files to get started.")) }
+            else if filtered.isEmpty { ContentUnavailableView.search(text: search) }
             else if category == "Songs" { trackList(filtered) }
             else { groups }
         }.navigationTitle("Library").searchable(text: $search, prompt: "Search your music").toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showFiles = true } label: { Label("Add music", systemImage: "plus") }.disabled(!store.libraryReady || store.mutationBusy) } }
@@ -62,7 +63,12 @@ struct RootView: View {
                 ContentUnavailableView("Library unavailable", systemImage: "exclamationmark.triangle",
                                        description: Text("Reopen the library from the Library tab."))
             } else {
-                trackList(store.index.filter("", favoritesOnly: true))
+                let songs = store.index.filter("", favoritesOnly: true)
+                if songs.isEmpty {
+                    ContentUnavailableView("No favorites", systemImage: "heart", description: Text("Mark a song as a favorite to see it here."))
+                } else {
+                    trackList(songs)
+                }
             }
         }
     }
@@ -103,8 +109,8 @@ struct RootView: View {
     func mini(_ track: Track) -> some View {
         HStack(spacing: 10) {
             Button { showPlayer = true } label: { HStack(spacing: 10) { Cover(url: store.artworkURL(track)).frame(width: 40,height: 40); VStack(alignment: .leading,spacing: 3) { Text(track.title).font(.subheadline.weight(.semibold)).lineLimit(1); Text(track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1) }; Spacer(minLength: 0) }.foregroundStyle(.primary) }.buttonStyle(.plain)
-            Button { store.toggle() } label: { Image(systemName: store.playing ? "pause.fill" : "play.fill").frame(width:44,height:44) }.accessibilityLabel(store.playing ? "Pause" : "Play")
-            Button { store.advance(1) } label: { Image(systemName: "forward.end.fill").frame(width:44,height:44) }.accessibilityLabel("Next track")
+            Button { store.toggle() } label: { Image(systemName: store.playing ? "pause.fill" : "play.fill").frame(width:44,height:44) }.accessibilityLabel(store.playing ? "Pause" : "Play").disabled(!store.canToggle)
+            Button { store.advance(1) } label: { Image(systemName: "forward.end.fill").frame(width:44,height:44) }.accessibilityLabel("Next track").disabled(!store.canAdvance)
         }.padding(.horizontal, 12).foregroundStyle(.primary)
     }
 }

@@ -11,7 +11,8 @@ import Foundation
     private var sessionNotifications: [NSObjectProtocol] = []
     private var itemNotifications: [NSObjectProtocol] = []
     private var playerGeneration = 0
-    private var itemGeneration = 0
+    private(set) var itemGeneration = 0
+    private var sessionActive = false
     private var seekGeneration = 0
     private var resumeAfterInterruption = false
     private var seeking = false
@@ -102,7 +103,8 @@ import Foundation
             forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main
         ) { @Sendable [weak self] _ in
             Task { @MainActor in
-                guard let self, self.itemGeneration == generation, self.wantsPlayback else { return }
+                guard let self, self.itemGeneration == generation,
+                      self.wantsPlayback, !self.seeking else { return }
                 self.onEnd?()
             }
         })
@@ -142,6 +144,7 @@ import Foundation
         wantsPlayback = false
         resumeAfterInterruption = false
         player = AVPlayer()
+        sessionActive = false
         mediaReset = preparedURL != nil
         installPlayerObservers()
         reportState()
@@ -151,9 +154,24 @@ import Foundation
     }
 
     private func activate() throws {
+        guard !sessionActive else { return }
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playback, mode: .default)
         try session.setActive(true)
+        sessionActive = true
+    }
+
+    private func deactivate() {
+        guard sessionActive else { return }
+        do {
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            sessionActive = false
+        } catch {
+            // Activation state is uncertain after a failed deactivation. Retry
+            // activation explicitly on the next Play, rather than assuming success.
+            sessionActive = false
+            onFailure?("Audio session could not be released: \(error.localizedDescription)")
+        }
     }
 
     /// Do not switch the existing item until session activation succeeds.
@@ -179,7 +197,7 @@ import Foundation
     }
 
     func resume() throws {
-        if mediaReset, let url = preparedURL {
+        if (mediaReset || player.currentItem?.status == .failed), let url = preparedURL {
             try prepare(url)
             onProgress?(0, nil)
         } else {
@@ -194,6 +212,7 @@ import Foundation
         resumeAfterInterruption = false
         player.pause()
         reportState()
+        deactivate()
     }
 
     func clear() {
@@ -204,8 +223,9 @@ import Foundation
         player.replaceCurrentItem(with: nil)
     }
 
-    func seek(_ seconds: Double, resumeAfterSeek: Bool = false) {
-        guard player.currentItem != nil, seconds.isFinite else { return }
+    @discardableResult
+    func seek(_ seconds: Double, resumeAfterSeek: Bool = false) -> Bool {
+        guard let current = player.currentItem, current.status != .failed, seconds.isFinite else { return false }
         seekGeneration += 1
         let generation = seekGeneration
         let item = itemGeneration
@@ -218,8 +238,12 @@ import Foundation
                 if finished && resumeAfterSeek && self.wantsPlayback { self.player.play() }
                 self.reportProgress()
                 self.onSeek?()
+                if !finished {
+                    self.onFailure?("Playback position could not be changed.")
+                }
             }
         }
+        return true
     }
 
     private func reportProgress() {
@@ -242,6 +266,7 @@ import Foundation
     private func interruption(type: UInt?, options: UInt) {
         if type == AVAudioSession.InterruptionType.began.rawValue {
             resumeAfterInterruption = wantsPlayback
+            sessionActive = false
             wantsPlayback = false
             player.pause()
             reportState()

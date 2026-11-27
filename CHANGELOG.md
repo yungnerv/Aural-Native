@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.3.0 — Foundation hardening
+- Use playback revision tickets for remote commands and scrubbing, reject seeks without an item, and reprepare failed items on explicit resume.
+- Release the audio session on pause/clear, gate queue navigation on library availability, and publish the replacement queue before playback starts.
+- Correct subsecond slider ranges, non-drag accessibility adjustments, search and Favorites empty states, and playback button availability.
 - Stage imports privately, validate sources before copying, and publish audio and artwork under separate names without replacing existing files.
 - Surface failed import cleanup; retain media needed by the previous index and reclaim only media from a retired snapshot after a successful commit.
 - Verify recorded audio checksums during explicit recovery; add regression coverage for recovery retention, checksum mismatch and nonregular imports.

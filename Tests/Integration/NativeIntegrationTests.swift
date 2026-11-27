@@ -94,6 +94,7 @@ final class NativeIntegrationTests: XCTestCase {
         XCTAssertTrue(engine.wantsPlayback)
         engine.clear()
         XCTAssertFalse(engine.wantsPlayback)
+        XCTAssertFalse(engine.seek(0.5), "No prepared item must reject a seek")
         try engine.resume()
         XCTAssertFalse(engine.wantsPlayback)
     }

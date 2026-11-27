@@ -34,9 +34,13 @@ func runTests() async throws {
     let remote = RemoteCommandGate()
     check(remote.accept(.play) == nil, "No remote command without a track")
     remote.update(trackID: first.id, available: [.play, .seek])
-    check(remote.accept(.play) == first.id && remote.accept(.next) == nil, "Remote command capability check")
+    let firstTicket = remote.accept(.play)!
+    check(firstTicket.trackID == first.id && remote.accept(.next) == nil, "Remote command capability check")
+    remote.update(trackID: first.id, revision: 1, available: [.play])
+    check(!remote.isCurrent(firstTicket, command: .play), "Same-track stale remote command rejected")
+    let secondTicket = remote.accept(.play)!
     remote.update(trackID: second.id, available: [.play])
-    check(!remote.isCurrent(first.id, command: .play), "Stale remote command rejected")
+    check(!remote.isCurrent(secondTicket, command: .play), "Stale remote command rejected")
     check(remote.accept(.seek) == nil, "Unavailable seek rejected")
 
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)

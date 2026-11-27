@@ -58,7 +58,7 @@ import UIKit
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
 
-    func update(track: Track, elapsed: Double, duration: Double, playing: Bool,
+    func update(track: Track, revision: Int, elapsed: Double, duration: Double, playing: Bool,
                 available: Set<RemoteCommandGate.Command>, artworkURL: URL?) {
         if trackID != track.id {
             trackID = track.id
@@ -81,7 +81,7 @@ import UIKit
             MPNowPlayingInfoPropertyElapsedPlaybackTime: elapsed,
             MPNowPlayingInfoPropertyPlaybackRate: playing ? 1.0 : 0.0
         ]
-        gate.update(trackID: track.id, available: available)
+        gate.update(trackID: track.id, revision: revision, available: available)
         for (command, _, kind) in targets { command.isEnabled = available.contains(kind) }
         publish()
     }

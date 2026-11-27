@@ -31,6 +31,7 @@ actor AudioImporter {
         let access = url.startAccessingSecurityScopedResource()
         defer { if access { url.stopAccessingSecurityScopedResource() } }
 
+        try requireRegularFile(url)
         let id = UUID()
         let extensionName = url.pathExtension.lowercased()
         let name = extensionName.isEmpty ? id.uuidString : "\(id.uuidString).\(extensionName)"
