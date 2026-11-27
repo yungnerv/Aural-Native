@@ -68,10 +68,14 @@ struct LibraryIndex: Sendable {
 
     /// Search immutable snapshots independently of UI state.
     func search(_ query: String, category: LibraryCategory) throws -> SearchResult {
+        try Task.checkCancellation()
+        if query.isEmpty {
+            return SearchResult(tracks: tracks, groups: category == .songs ? [] : (category == .artists ? artists : albums))
+        }
         var matches: [Track] = []
         for (offset, track) in tracks.enumerated() {
             if offset.isMultiple(of: 256) { try Task.checkCancellation() }
-            if query.isEmpty || searchable[track.id]?.localizedCaseInsensitiveContains(query) == true {
+            if searchable[track.id]?.localizedCaseInsensitiveContains(query) == true {
                 matches.append(track)
             }
         }
