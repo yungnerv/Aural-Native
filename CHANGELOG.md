@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.10 — Large-library saves
+- Validate track IDs and normalized media names in one pass. Reuse validated filenames for backup protection and skip ownership checks for protected media during cleanup.
+
 ## 0.3.9 — Playback failure recovery
 - Detach terminally failed items, invalidate pending callbacks, and rebuild the selected track on explicit Play. Disable seeking in the player and remote controls until an item is available.
 

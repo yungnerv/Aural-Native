@@ -67,13 +67,13 @@ actor LibraryRepository {
             // The actor is the sole writer. Atomic replacement prevents a partial
             // initial index after an interruption; never initialize over media.
             try bytes.write(to: indexURL, options: .atomic)
-            accept(bytes, tracks: [])
+            accept(bytes, names: [])
             return []
         }
         let bytes = try readIndex(indexURL)
-        let tracks = try decode(bytes)
-        accept(bytes, tracks: tracks)
-        return tracks
+        let snapshot = try decode(bytes)
+        accept(bytes, names: snapshot.names)
+        return snapshot.tracks
     }
 
     /// Returns cleanup diagnostics separately from the committed transaction.
@@ -81,13 +81,13 @@ actor LibraryRepository {
     @discardableResult
     func commit(_ tracks: [Track]) throws -> [String] {
         let previous = try verifyCurrentIndex()
-        try Self.validate(tracks)
+        let names = try Self.validatedNames(tracks)
         let bytes = try encode(tracks)
         guard bytes != previous else { return [] }
         var retired: [Track] = []
         var diagnostics: [String] = []
         if exists(backupURL) {
-            do { retired = try decode(readIndex(backupURL)) }
+            do { retired = try decode(readIndex(backupURL)).tracks }
             catch Failure.unsupportedSchema(let version) {
                 throw Failure.unsupportedSchema(version)
             }
@@ -95,10 +95,10 @@ actor LibraryRepository {
                 diagnostics.append("Previous backup could not be read; its media will not be reclaimed: \(error.localizedDescription)")
             }
         }
-        let protected = committedNames.union(Self.names(tracks))
+        let protected = committedNames.union(names)
         try previous.write(to: backupURL, options: .atomic)
         try bytes.write(to: indexURL, options: .atomic)
-        accept(bytes, tracks: tracks)
+        accept(bytes, names: names)
         // A structurally valid retired index is not proof of file ownership.
         // Reclaim only app-generated names whose recorded digests still match.
         // Legacy, modified and otherwise unverified media are preserved.
@@ -109,7 +109,7 @@ actor LibraryRepository {
     private func reclaim(_ tracks: [Track], protecting protected: Set<String>) -> [String] {
         var diagnostics: [String] = []
         for track in tracks {
-            for media in Self.media(track) where !protected.contains(Self.key(media.name)) {
+            for media in Self.media(track, excluding: protected) {
                 let url = root.appendingPathComponent(media.name)
                 guard exists(url) else { continue }
                 do {
@@ -137,11 +137,10 @@ actor LibraryRepository {
     /// replace a healthy current index. Missing media blocks restoration.
     func inspectRecovery() throws -> RecoveryReport {
         let candidate = try recoveryCandidate()
-        return try recoveryReport(for: candidate.tracks)
+        return try recoveryReport(for: candidate.tracks, names: candidate.names)
     }
 
-    private func recoveryReport(for tracks: [Track]) throws -> RecoveryReport {
-        let names = Self.names(tracks)
+    private func recoveryReport(for tracks: [Track], names: Set<String>) throws -> RecoveryReport {
         var missing = 0
         var damaged = 0
         var unverified = 0
@@ -168,7 +167,9 @@ actor LibraryRepository {
         }
         let entries = try fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey])
         let unreferenced = entries.filter {
-            Self.validName($0.lastPathComponent) && !names.contains(Self.key($0.lastPathComponent)) && isRegularFile($0)
+            let name = $0.lastPathComponent
+            let normalized = Self.key(name)
+            return Self.validName(name, normalized: normalized) && !names.contains(normalized) && isRegularFile($0)
         }.count
         return RecoveryReport(tracks: tracks.count, missingMedia: missing,
                               damagedMedia: damaged, unverifiedMedia: unverified,
@@ -179,7 +180,7 @@ actor LibraryRepository {
         // Verify the exact candidate that will be written, not a second read
         // of the backup that may have changed since inspection.
         let candidate = try recoveryCandidate()
-        let report = try recoveryReport(for: candidate.tracks)
+        let report = try recoveryReport(for: candidate.tracks, names: candidate.names)
         guard report.missingMedia == 0 else { throw Failure.missingMedia }
         guard report.damagedMedia == 0 else { throw Failure.damagedMedia }
         try Task.checkCancellation()
@@ -194,11 +195,11 @@ actor LibraryRepository {
               try readIndex(backupURL) == candidate.backup else { throw Failure.changedOnDisk }
         let bytes = try encode(candidate.tracks)
         try bytes.write(to: indexURL, options: .atomic)
-        accept(bytes, tracks: candidate.tracks)
+        accept(bytes, names: candidate.names)
         return candidate.tracks
     }
 
-    private func recoveryCandidate() throws -> (tracks: [Track], damaged: Data?, backup: Data) {
+    private func recoveryCandidate() throws -> (tracks: [Track], names: Set<String>, damaged: Data?, backup: Data) {
         guard !opened else { throw Failure.recoveryUnavailable }
         let damaged = exists(indexURL) ? try readIndex(indexURL) : nil
         if let damaged {
@@ -211,12 +212,13 @@ actor LibraryRepository {
         }
         guard exists(backupURL) else { throw Failure.recoveryUnavailable }
         let backup = try readIndex(backupURL)
-        return (try decode(backup), damaged, backup)
+        let snapshot = try decode(backup)
+        return (snapshot.tracks, snapshot.names, damaged, backup)
     }
 
-    private func accept(_ bytes: Data, tracks: [Track]) {
+    private func accept(_ bytes: Data, names: Set<String>) {
         previousBytes = bytes
-        committedNames = Self.names(tracks)
+        committedNames = names
         opened = true
     }
 
@@ -232,7 +234,7 @@ actor LibraryRepository {
         return try encoder.encode(Snapshot(schemaVersion: Self.currentSchema, tracks: tracks))
     }
 
-    private func decode(_ bytes: Data) throws -> [Track] {
+    private func decode(_ bytes: Data) throws -> (tracks: [Track], names: Set<String>) {
         let decoder = JSONDecoder()
         let tracks: [Track]
         if let snapshot = try? decoder.decode(Snapshot.self, from: bytes) {
@@ -248,8 +250,7 @@ actor LibraryRepository {
             }
             throw Failure.invalidIndex
         }
-        try Self.validate(tracks)
-        return tracks
+        return (tracks, try Self.validatedNames(tracks))
     }
 
     private func exists(_ url: URL) -> Bool {
@@ -281,12 +282,7 @@ actor LibraryRepository {
         name.precomposedStringWithCanonicalMapping.lowercased()
     }
 
-    private static func names(_ tracks: [Track]) -> Set<String> {
-        Set(tracks.flatMap { [$0.file, $0.artwork].compactMap { $0 } }.map(key))
-    }
-
-    private static func validName(_ name: String) -> Bool {
-        let normalized = key(name)
+    private static func validName(_ name: String, normalized: String) -> Bool {
         return !name.isEmpty && !name.hasPrefix(".") &&
             !name.contains("/") && !name.contains("\\") && !name.contains("\0") &&
             normalized != "library.json" && normalized != "library.previous.json" &&
@@ -299,13 +295,19 @@ actor LibraryRepository {
         let managed: Bool
     }
 
-    private static func media(_ track: Track) -> [MediaReference] {
-        let id = key(track.id.uuidString)
-        let stem = key(URL(fileURLWithPath: track.file).deletingPathExtension().lastPathComponent)
-        var result = [MediaReference(name: track.file, hash: track.contentHash, managed: stem == id)]
+    private static func media(_ track: Track, excluding protected: Set<String> = []) -> [MediaReference] {
+        var result: [MediaReference] = []
+        if !protected.contains(key(track.file)) {
+            let stem = URL(fileURLWithPath: track.file).deletingPathExtension().lastPathComponent
+            result.append(MediaReference(name: track.file, hash: track.contentHash,
+                                         managed: key(stem) == key(track.id.uuidString)))
+        }
         if let artwork = track.artwork {
-            result.append(MediaReference(name: artwork, hash: track.artworkHash,
-                                         managed: key(artwork) == "\(id)-cover.jpg"))
+            let normalized = key(artwork)
+            if !protected.contains(normalized) {
+                result.append(MediaReference(name: artwork, hash: track.artworkHash,
+                                             managed: normalized == "\(key(track.id.uuidString))-cover.jpg"))
+            }
         }
         return result
     }
@@ -317,28 +319,38 @@ actor LibraryRepository {
         }
     }
 
-    private static func validate(_ tracks: [Track]) throws {
-        let names = tracks.flatMap { [$0.file, $0.artwork].compactMap { $0 } }
-        guard Set(tracks.map(\.id)).count == tracks.count,
-              Set(names.map(key)).count == names.count,
-              names.allSatisfy(validName),
-              tracks.allSatisfy({ $0.duration.isFinite && $0.duration >= 0 &&
-                  validDigest($0.contentHash) && validDigest($0.artworkHash) &&
-                  ($0.artwork != nil || $0.artworkHash == nil) &&
-                  ($0.metadata?.track?.isValid ?? true) && ($0.metadata?.disc?.isValid ?? true) }) else {
-            throw Failure.invalidIndex
+    private static func validatedNames(_ tracks: [Track]) throws -> Set<String> {
+        var ids = Set<UUID>()
+        var names = Set<String>()
+        ids.reserveCapacity(tracks.count)
+        names.reserveCapacity(tracks.count)
+        func insert(_ name: String) throws {
+            let normalized = key(name)
+            guard validName(name, normalized: normalized), names.insert(normalized).inserted else {
+                throw Failure.invalidIndex
+            }
         }
+        for track in tracks {
+            guard ids.insert(track.id).inserted, track.duration.isFinite, track.duration >= 0,
+                  validDigest(track.contentHash), validDigest(track.artworkHash),
+                  track.artwork != nil || track.artworkHash == nil,
+                  track.metadata?.track?.isValid ?? true, track.metadata?.disc?.isValid ?? true else {
+                throw Failure.invalidIndex
+            }
+            try insert(track.file)
+            if let artwork = track.artwork { try insert(artwork) }
+        }
+        return names
     }
 
     /// Roll back unpublished imports under the same ownership rules as retired media.
     func discardImports(_ tracks: [Track]) throws -> [String] {
         _ = try verifyCurrentIndex()
-        try Self.validate(tracks)
-        let names = Self.names(tracks)
+        let names = try Self.validatedNames(tracks)
         guard names.isDisjoint(with: committedNames) else { throw Failure.invalidIndex }
-        let backupNames = exists(backupURL) ? Self.names(try decode(readIndex(backupURL))) : []
+        let backupNames = exists(backupURL) ? try decode(readIndex(backupURL)).names : []
         for track in tracks {
-            for media in Self.media(track) where !backupNames.contains(Self.key(media.name)) {
+            for media in Self.media(track, excluding: backupNames) {
                 let url = root.appendingPathComponent(media.name)
                 guard !exists(url) || isRegularFile(url) else { throw Failure.unsafeMedia }
             }

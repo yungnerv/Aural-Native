@@ -235,6 +235,13 @@ func runTests() async throws {
     var conflicting = third
     conflicting.file = first.file.lowercased()
     do { try await damagedRepo.commit([first, conflicting]); fatalError("Case-folded collision accepted") } catch {}
+    let beforeRejectedCommit = try Data(contentsOf: recoveryIndex)
+    var renamed = first
+    renamed.file = "Café.m4a"
+    conflicting.artwork = "CAFE\u{301}.m4a"
+    do { try await damagedRepo.commit([renamed, conflicting]); fatalError("Canonical artwork/audio collision accepted") }
+    catch LibraryRepository.Failure.invalidIndex {}
+    check(try Data(contentsOf: recoveryIndex) == beforeRejectedCommit, "Filename collision leaves committed bytes intact")
     let folder = recoveryRoot.appendingPathComponent("folder.mp3", isDirectory: true)
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     var directoryTrack = third
