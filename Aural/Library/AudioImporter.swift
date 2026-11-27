@@ -31,6 +31,7 @@ actor AudioImporter {
         let access = url.startAccessingSecurityScopedResource()
         defer { if access { url.stopAccessingSecurityScopedResource() } }
 
+        try Task.checkCancellation()
         try requireRegularFile(url)
         let id = UUID()
         let extensionName = url.pathExtension.lowercased()
@@ -63,7 +64,9 @@ actor AudioImporter {
             if let coordinationError { throw coordinationError }
             if let copyError { throw copyError }
 
+            try Task.checkCancellation()
             let hash = try digest(stagedAudio)
+            try Task.checkCancellation()
             if knownHashes.contains(hash) {
                 try fm.removeItem(at: staging)
                 return nil
@@ -75,7 +78,9 @@ actor AudioImporter {
             let audio = try await asset.loadTracks(withMediaType: .audio)
             guard playable, !audio.isEmpty else { throw Failure.unsupportedAudio }
             let duration = try await asset.load(.duration).seconds
+            try Task.checkCancellation()
             let metadata = (try? await asset.load(.commonMetadata)) ?? []
+            try Task.checkCancellation()
             func value(_ key: AVMetadataKey) async -> String? {
                 guard let item = AVMetadataItem.metadataItems(from: metadata, withKey: key, keySpace: .common).first else {
                     return nil
@@ -89,7 +94,9 @@ actor AudioImporter {
             let artist = await value(.commonKeyArtist) ?? (parts.count == 2 ? parts[0] : "Unknown artist")
             let album = await value(.commonKeyAlbumName) ?? "Unknown album"
             let allMetadata = (try? await asset.load(.metadata)) ?? metadata
+            try Task.checkCancellation()
             let extended = try await EmbeddedMetadata.read(allMetadata, filename: url.lastPathComponent)
+            try Task.checkCancellation()
             var artName: String?
             var artHash: String?
             if let item = AVMetadataItem.metadataItems(from: metadata, withKey: AVMetadataKey.commonKeyArtwork, keySpace: .common).first,
