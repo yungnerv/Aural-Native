@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// The system supplies the Liquid Glass accessory surface. Do not layer a
-/// second custom material underneath it.
+/// Shared interactive content for both hosts. On iPhone the system supplies
+/// the surface; on iPad the safe-area host applies a single native glass effect.
+/// Never apply an additional material here.
 struct MiniPlayerView: View {
     let track: Track
     let openPlayer: () -> Void

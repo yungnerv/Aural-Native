@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.3 — iPad mini-player presentation
+- Use a safe-area-aware native Liquid Glass mini-player on iPad independently of the top tab bar; retain the native adaptive accessory on iPhone.
+- Strengthen cross-device UI regression tests: verify current-track selection, hit testing, accessible metadata and transport, and shared pause state. Do not remove or relax the failing test.
+
 ## 0.3.2 — Native Liquid Glass presentation
 - Adopt typed system tabs, native tab-bar minimization and adaptive mini-player placement. Keep the accessory's system glass surface instead of duplicating it.
 - Present Now Playing in a native sheet/navigation stack with Liquid Glass playback, favorite and mode controls, system slider, adaptive wide layout and accessible labels/states.

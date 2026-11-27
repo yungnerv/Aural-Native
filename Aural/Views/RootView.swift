@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 struct RootView: View {
@@ -34,22 +35,26 @@ struct RootView: View {
     private var filtered: [Track] {
         search.isEmpty ? store.tracks : matchingResult?.tracks ?? []
     }
+    // iPad's floating top tab bar does not reliably host the bottom accessory.
+    // Choose one host per idiom, including narrow iPad multitasking windows.
+    private var usesIndependentMiniPlayer: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+
     var body: some View {
         TabView(selection: $tab) {
             Tab("Library", systemImage: "books.vertical", value: 0) {
-                NavigationStack { library }
+                tabContent { library }
             }
             Tab("Favorites", systemImage: "heart", value: 1) {
-                NavigationStack { favorites.navigationTitle("Favorites") }
+                tabContent { favorites.navigationTitle("Favorites") }
             }
             Tab("Settings", systemImage: "gearshape", value: 2) {
-                NavigationStack { settings }
+                tabContent { settings }
             }
         }
         .tint(.mint)
         .tabBarMinimizeBehavior(.onScrollDown)
-        .tabViewBottomAccessory(isEnabled: store.current != nil) {
-            if let track = store.current {
+        .tabViewBottomAccessory(isEnabled: !usesIndependentMiniPlayer && store.current != nil) {
+            if !usesIndependentMiniPlayer, let track = store.current {
                 MiniPlayerView(track: track) { showPlayer = true }
             }
         }
@@ -67,6 +72,23 @@ struct RootView: View {
         } message: { Text("The current damaged index will be preserved. The previous index may omit recent library changes. No audio files will be deleted.") }
         .alert("Aural", isPresented: Binding(get: { store.message != nil }, set: { if !$0 { store.message = nil } })) { Button("OK") { store.message = nil } } message: { Text(store.message ?? "") }
     }
+    /// Host the iPad player inside each tab's safe area, not above the tab
+    /// controller. Content can scroll clear of the bar in every window size.
+    private func tabContent<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        NavigationStack { content() }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if usesIndependentMiniPlayer, let track = store.current {
+                    MiniPlayerView(track: track) { showPlayer = true }
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: 600)
+                        .glassEffect(.regular, in: .capsule)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 8)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+    }
+
     var library: some View {
         VStack(spacing: 0) {
             Picker("Library view", selection: $category) {
@@ -206,6 +228,7 @@ struct RootView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("track-\(track.id.uuidString)")
+            .accessibilityAddTraits(store.currentID == track.id ? .isSelected : [])
             .swipeActions { Button { store.favorite(track) } label: { Label(track.favorite ? "Remove favorite" : "Favorite", systemImage: track.favorite ? "heart.slash" : "heart") }.tint(.mint).disabled(store.mutationBusy || !store.libraryReady) }.contextMenu { Button { store.favorite(track) } label: { Label(track.favorite ? "Remove favorite" : "Favorite", systemImage: "heart") }.disabled(store.mutationBusy || !store.libraryReady); Button(role: .destructive) { store.remove(track) } label: { Label("Remove from Aural", systemImage: "trash") }.disabled(store.mutationBusy || !store.libraryReady) }
         }.listStyle(.plain)
     }

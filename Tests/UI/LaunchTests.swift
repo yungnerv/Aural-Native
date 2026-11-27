@@ -8,6 +8,7 @@ final class LaunchTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["No music"].waitForExistence(timeout: 20),
                       "A fresh simulator should open the empty library without an error")
         XCTAssertEqual(app.state, .runningForeground)
+        XCTAssertFalse(app.buttons["open-player"].exists, "No player before selecting music")
     }
 
     @MainActor
@@ -23,9 +24,19 @@ final class LaunchTests: XCTestCase {
         let row = app.buttons["track-1A2B3C4D-0001-4000-8000-000000000001"]
         XCTAssertTrue(row.waitForExistence(timeout: 20))
         row.tap()
+        XCTAssertTrue(row.isSelected, "The selected track must become the current track")
 
         let open = app.buttons["open-player"]
-        XCTAssertTrue(open.waitForExistence(timeout: 20), "The native mini-player must be accessible")
+        guard open.waitForExistence(timeout: 20) else {
+            capture(app, named: "Missing Mini Player")
+            XCTFail("The native mini-player must be accessible on both iPhone and iPad")
+            return
+        }
+        XCTAssertTrue(open.isHittable, "The mini-player must be onscreen and tappable")
+        XCTAssertEqual(open.value as? String, "Aural Test Track, Fixture Artist")
+        let miniToggle = app.buttons["mini-toggle"]
+        XCTAssertTrue(miniToggle.exists && miniToggle.isHittable, "Mini-player transport must be available")
+        XCTAssertEqual(miniToggle.label, "Pause")
         capture(app, named: "Native Library and Mini Player")
         open.tap()
 
@@ -44,6 +55,8 @@ final class LaunchTests: XCTestCase {
         XCTAssertTrue(close.waitForExistence(timeout: 10))
         close.tap()
         XCTAssertTrue(open.waitForExistence(timeout: 15))
+        XCTAssertTrue(open.isHittable)
+        XCTAssertEqual(miniToggle.label, "Play", "Paused state must be shared between both presentations")
     }
 
     @MainActor
