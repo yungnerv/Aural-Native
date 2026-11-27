@@ -365,6 +365,12 @@ func runTests() async throws {
     check(reloaded == large && indexed.byID.count == 10_000, "10k track round trip")
     check(indexed.filter("", favoritesOnly: true).count == 1_000, "10k track favorites")
     check(indexed.groups(category: .artists, query: "").count == 100, "10k artist groups")
+    for category in LibraryCategory.allCases {
+        let unfiltered = try indexed.search("", category: category)
+        check(unfiltered.tracks == large, "Empty search preserves track order")
+        check(unfiltered.groups.map(\.id) == indexed.groups(category: category, query: "").map(\.id),
+              "Empty search preserves cached group ordering")
+    }
     let searchStart = ContinuousClock.now
     let largeResults = try indexed.search("Artist 42", category: .albums)
     check(largeResults.tracks.count == 100, "10k snapshot search")
