@@ -177,7 +177,7 @@ struct RootView: View {
                 ContentUnavailableView("Library unavailable", systemImage: "exclamationmark.triangle",
                                        description: Text("Reopen the library from the Library tab."))
             } else {
-                let songs = store.index.filter("", favoritesOnly: true)
+                let songs = store.index.favorites
                 if songs.isEmpty {
                     ContentUnavailableView("No favorites", systemImage: "heart", description: Text("Mark a song as a favorite to see it here."))
                 } else {
@@ -188,7 +188,7 @@ struct RootView: View {
     }
 
     var groups: some View {
-        let groups = search.isEmpty ? store.index.groups(category: category, query: "") : matchingResult?.groups ?? []
+        let groups = search.isEmpty ? store.index.groups(category: category) : matchingResult?.groups ?? []
         return ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 148), spacing: 14)], spacing: 18) {
                 ForEach(groups) { group in

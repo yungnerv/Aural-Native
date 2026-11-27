@@ -45,19 +45,21 @@ import Foundation
     }
 
     private func installSessionObservers() {
+        // NotificationCenter delivers these observers on OperationQueue.main.
+        // Handle them inline so rapid route and interruption events retain their order.
         let center = NotificationCenter.default
         sessionNotifications.append(center.addObserver(
             forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
         ) { @Sendable [weak self] note in
             let type = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
             let options = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
-            Task { @MainActor in self?.interruption(type: type, options: options) }
+            MainActor.assumeIsolated { self?.interruption(type: type, options: options) }
         })
         sessionNotifications.append(center.addObserver(
             forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
         ) { @Sendable [weak self] note in
             let reason = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 if reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue {
                     self?.pause()
                 }
@@ -66,7 +68,7 @@ import Foundation
         sessionNotifications.append(center.addObserver(
             forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main
         ) { @Sendable [weak self] _ in
-            Task { @MainActor in self?.handleMediaReset() }
+            MainActor.assumeIsolated { self?.handleMediaReset() }
         })
     }
 

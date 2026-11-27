@@ -205,6 +205,35 @@ final class NativeIntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testDuplicateInterruptionPreservesIntentUntilExplicitPause() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("interruption.wav")
+        try fixture(at: url)
+        let engine = PlaybackEngine()
+        defer { engine.clear() }
+        try engine.prepare(url)
+        engine.start()
+
+        func post(_ type: AVAudioSession.InterruptionType) {
+            NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: nil,
+                userInfo: [AVAudioSessionInterruptionTypeKey: type.rawValue,
+                           AVAudioSessionInterruptionOptionKey: AVAudioSession.InterruptionOptions.shouldResume.rawValue])
+        }
+        post(.began)
+        XCTAssertFalse(engine.wantsPlayback)
+        post(.began)
+        post(.ended)
+        XCTAssertTrue(engine.wantsPlayback)
+
+        post(.began)
+        engine.pause()
+        post(.ended)
+        XCTAssertFalse(engine.wantsPlayback)
+    }
+
+    @MainActor
     func testMediaResetRequiresExplicitResumeAndRestoresPosition() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

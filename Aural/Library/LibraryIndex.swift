@@ -27,7 +27,7 @@ struct LibraryIndex: Sendable {
     let favorites: [Track]
     subscript(id: UUID) -> Track? { positionByID[id].map { tracks[$0] } }
     let positionByID: [UUID: Int]
-    private let searchable: [UUID: String]
+    private let searchable: [String]
     private let albums: [Group]
     private let artists: [Group]
     private let groupsByKey: [Group.Key: Group]
@@ -36,30 +36,24 @@ struct LibraryIndex: Sendable {
         self.tracks = tracks
         favorites = tracks.filter(\.favorite)
         positionByID = Dictionary(tracks.enumerated().lazy.map { ($0.element.id, $0.offset) }, uniquingKeysWith: { first, _ in first })
-        searchable = Dictionary(tracks.lazy.map { track in
+        searchable = tracks.map { track in
             let extra = [track.metadata?.albumArtist, track.metadata?.composer, track.metadata?.genre,
                          track.metadata?.releaseDate, track.metadata?.recordingDate].compactMap { $0 }
-            return (track.id, ([track.title, track.artist, track.album] + extra).joined(separator: " "))
-        }, uniquingKeysWith: { first, _ in first })
+            return ([track.title, track.artist, track.album] + extra).joined(separator: " ")
+        }
         albums = Self.makeGroups(tracks, category: .albums)
         artists = Self.makeGroups(tracks, category: .artists)
         groupsByKey = Dictionary(uniqueKeysWithValues: (albums + artists).map { ($0.id, $0) })
     }
 
-    func filter(_ query: String, favoritesOnly: Bool = false) -> [Track] {
-        let source = favoritesOnly ? favorites : tracks
-        guard !query.isEmpty else { return source }
-        return source.filter {
-            searchable[$0.id]?.localizedCaseInsensitiveContains(query) == true
-        }
-    }
-
     func group(for key: Group.Key) -> Group? { groupsByKey[key] }
 
-    func groups(category: LibraryCategory, query: String) -> [Group] {
-        guard category != .songs else { return [] }
-        if query.isEmpty { return category == .artists ? artists : albums }
-        return Self.makeGroups(filter(query), category: category)
+    func groups(category: LibraryCategory) -> [Group] {
+        switch category {
+        case .albums: albums
+        case .artists: artists
+        case .songs: []
+        }
     }
 
     struct SearchResult: Sendable {
@@ -71,13 +65,13 @@ struct LibraryIndex: Sendable {
     func search(_ query: String, category: LibraryCategory) throws -> SearchResult {
         try Task.checkCancellation()
         if query.isEmpty {
-            return SearchResult(tracks: tracks, groups: category == .songs ? [] : (category == .artists ? artists : albums))
+            return SearchResult(tracks: tracks, groups: groups(category: category))
         }
         var matches: [Track] = []
-        for (offset, track) in tracks.enumerated() {
+        for offset in searchable.indices {
             if offset.isMultiple(of: 256) { try Task.checkCancellation() }
-            if searchable[track.id]?.localizedCaseInsensitiveContains(query) == true {
-                matches.append(track)
+            if searchable[offset].localizedCaseInsensitiveContains(query) {
+                matches.append(tracks[offset])
             }
         }
         try Task.checkCancellation()

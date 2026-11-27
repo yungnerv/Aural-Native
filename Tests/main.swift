@@ -33,10 +33,10 @@ func runTests() async throws {
     compilationTrack.metadata = TrackMetadata(albumArtist: "Various Artists", composer: "Composer",
                                              track: .init(number: 1), disc: .init(number: 1))
     let compilation = LibraryIndex([collaboration, compilationTrack])
-    let compilationGroups = compilation.groups(category: .albums, query: "")
+    let compilationGroups = compilation.groups(category: .albums)
     check(compilationGroups.count == 1 && compilationGroups[0].tracks == [compilationTrack, collaboration],
           "Album artist groups collaborations in disc/track order")
-    check(compilation.filter("Composer") == [compilationTrack], "Extended tag search")
+    check(try compilation.search("Composer", category: .songs).tracks == [compilationTrack], "Extended tag search")
     let metadataRoundTrip = try JSONDecoder().decode(Track.self, from: JSONEncoder().encode(collaboration))
     check(metadataRoundTrip == collaboration, "Extended metadata round trip")
 
@@ -45,7 +45,7 @@ func runTests() async throws {
     check(queue.order.first == second.id && Set(queue.order) == Set([first.id, second.id, third.id]), "Shuffle membership")
     queue.setShuffle(false, current: second.id)
     check(queue.order == [first.id, second.id, third.id], "Original queue order")
-    queue.remove(second.id)
+    queue.retain { $0 != second.id }
     check(queue.adjacent(to: first.id, direction: 1) == third.id, "Queue removal")
     check(queue.adjacent(to: third.id, direction: 1) == nil, "Queue end")
     queue.retain { $0 == third.id }
@@ -60,14 +60,14 @@ func runTests() async throws {
     check(queue.adjacent(to: second.id, direction: 1) == queue.order[1], "Shuffle rebuilds position index")
 
     let index = LibraryIndex([first, second, third])
-    check(index[first.id] == first && index.filter("ARTIST").count == 3, "Index and search")
-    check(index.filter("", favoritesOnly: true) == [first], "Favorites")
+    check(index[first.id] == first && index[UUID()] == nil, "ID lookup and missing track")
+    check(index.favorites == [first], "Favorites")
     let searchResult = try index.search("ARTIST", category: .albums)
     check(searchResult.tracks == [first, second, third] && searchResult.groups.count == 3, "Value snapshot search")
     let noResults = try index.search("no matches", category: .songs)
     check(noResults.tracks.isEmpty && noResults.groups.isEmpty, "Empty search result")
-    check(index.groups(category: .albums, query: "").count == 3, "Distinct untagged singles")
-    let artistGroup = index.groups(category: .artists, query: "").first!
+    check(index.groups(category: .albums).count == 3, "Distinct untagged singles")
+    let artistGroup = index.groups(category: .artists).first!
     let updatedIndex = LibraryIndex([first, third])
     check(updatedIndex.group(for: artistGroup.id)?.tracks == [first, third], "Navigation group resolves live contents")
     let remote = RemoteCommandGate()
@@ -380,12 +380,12 @@ func runTests() async throws {
     let reloaded = try await stress.load()
     let indexed = await stress.makeIndex(reloaded)
     check(reloaded == large && indexed.positionByID.count == 10_000, "10k track round trip")
-    check(indexed.filter("", favoritesOnly: true).count == 1_000, "10k track favorites")
-    check(indexed.groups(category: .artists, query: "").count == 100, "10k artist groups")
+    check(indexed.favorites.count == 1_000, "10k track favorites")
+    check(indexed.groups(category: .artists).count == 100, "10k artist groups")
     for category in LibraryCategory.allCases {
         let unfiltered = try indexed.search("", category: category)
         check(unfiltered.tracks == large, "Empty search preserves track order")
-        check(unfiltered.groups.map(\.id) == indexed.groups(category: category, query: "").map(\.id),
+        check(unfiltered.groups.map(\.id) == indexed.groups(category: category).map(\.id),
               "Empty search preserves cached group ordering")
     }
     let searchStart = ContinuousClock.now

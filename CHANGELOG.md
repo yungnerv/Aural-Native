@@ -5,6 +5,7 @@
 - Resolve track IDs through the position index and reuse it for queue pruning. Avoid comparing the entire library to detect pending import changes.
 - Verify managed filenames and SHA-256 before import rollback, reuse backup protection for the batch, and deduplicate against uppercase legacy digests.
 - Keep the full player stacked at accessibility text sizes and announce the scrubber position as elapsed time.
+- Scan search text in track order, eliminating a UUID lookup per candidate. Cancel superseded pull-request workflows.
 - Export real library and player screenshots for both simulator families, preferring the target models when installed.
 
 ## 0.3.7 — Correct retirement fixture isolation

@@ -21,12 +21,6 @@ struct PlaybackQueue: Sendable {
         rebuildPositions()
     }
 
-    mutating func remove(_ id: UUID) {
-        original.removeAll { $0 == id }
-        order.removeAll { $0 == id }
-        rebuildPositions()
-    }
-
     mutating func retain(_ isAvailable: (UUID) -> Bool) {
         guard original.contains(where: { !isAvailable($0) }) else { return }
         original = original.filter(isAvailable)
