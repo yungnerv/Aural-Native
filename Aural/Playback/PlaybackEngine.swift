@@ -250,6 +250,7 @@ import Foundation
                 self.reportProgress()
                 self.onSeek?()
                 if !finished {
+                    if resumeAfterSeek { self.pause() }
                     self.onFailure?("Playback position could not be changed.")
                 }
             }
