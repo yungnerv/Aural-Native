@@ -18,6 +18,7 @@ import Foundation
     private var seeking = false
     private var preparedURL: URL?
     private var mediaReset = false
+    private var lastKnownPosition = 0.0
     private(set) var wantsPlayback = false
     var isPlaying: Bool { player.timeControlStatus == .playing }
 
@@ -149,7 +150,7 @@ import Foundation
         installPlayerObservers()
         reportState()
         if mediaReset {
-            onFailure?("Audio services restarted. Press Play to resume the selected track from the beginning.")
+            onFailure?("Audio services restarted. Press Play to resume the selected track.")
         }
     }
 
@@ -179,6 +180,7 @@ import Foundation
         try activate()
         preparedURL = url
         mediaReset = false
+        lastKnownPosition = 0
         player.pause()
         wantsPlayback = false
         resumeAfterInterruption = false
@@ -198,7 +200,15 @@ import Foundation
 
     func resume() throws {
         if (mediaReset || player.currentItem?.status == .failed), let url = preparedURL {
+            let position = mediaReset ? lastKnownPosition : 0
             try prepare(url)
+            if position > 0 {
+                wantsPlayback = true
+                if seek(position, resumeAfterSeek: true) {
+                    reportState()
+                    return
+                }
+            }
             onProgress?(0, nil)
         } else {
             guard player.currentItem != nil else { return }
@@ -218,6 +228,7 @@ import Foundation
     func clear() {
         preparedURL = nil
         mediaReset = false
+        lastKnownPosition = 0
         pause()
         removeItemObservers()
         player.replaceCurrentItem(with: nil)
@@ -250,7 +261,8 @@ import Foundation
         guard !seeking, player.currentItem != nil else { return }
         let seconds = player.currentTime().seconds
         let total = player.currentItem?.duration.seconds
-        onProgress?(seconds.isFinite ? max(0, seconds) : 0,
+        if seconds.isFinite { lastKnownPosition = max(0, seconds) }
+        onProgress?(lastKnownPosition,
                     total.flatMap { $0.isFinite && $0 > 0 ? $0 : nil })
     }
 
