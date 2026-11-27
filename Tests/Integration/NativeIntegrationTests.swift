@@ -54,6 +54,28 @@ final class NativeIntegrationTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
     }
 
+    func testDirectoryAndSymlinkAreRejectedBeforePublishing() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let folder = root.appendingPathComponent("folder.wav", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let source = root.appendingPathComponent("source.wav")
+        try fixture(at: source)
+        let link = root.appendingPathComponent("link.wav")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: source)
+        let library = root.appendingPathComponent("library", isDirectory: true)
+        try FileManager.default.createDirectory(at: library, withIntermediateDirectories: true)
+        for invalid in [folder, link] {
+            do {
+                _ = try await AudioImporter().readFile(invalid, into: library, knownHashes: [])
+                XCTFail("Nonregular source accepted: \(invalid.lastPathComponent)")
+            } catch {}
+        }
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: library.path).isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
+    }
+
     @MainActor
     func testPlaybackIntentAndLifecycle() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

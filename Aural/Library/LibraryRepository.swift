@@ -17,7 +17,7 @@ actor LibraryRepository {
 
     enum Failure: LocalizedError {
         case notOpen, invalidIndex, changedOnDisk, unsupportedSchema(Int)
-        case recoveryUnavailable, missingMedia, unsafeMedia
+        case recoveryUnavailable, missingMedia, unsafeMedia, damagedMedia
 
         var errorDescription: String? {
             switch self {
@@ -28,6 +28,7 @@ actor LibraryRepository {
             case .recoveryUnavailable: return "There is no eligible previous index to restore."
             case .missingMedia: return "The previous index references missing or invalid files. No files have been changed."
             case .unsafeMedia: return "A media path is not a regular file. No unsafe deletion was attempted."
+            case .damagedMedia: return "A previous-index audio file does not match its recorded checksum. Recovery was not performed."
             }
         }
 
@@ -71,14 +72,42 @@ actor LibraryRepository {
         return tracks
     }
 
-    func commit(_ tracks: [Track]) throws {
+    /// Returns cleanup diagnostics separately from the committed transaction.
+    /// A successful index write must never be reported as a failed commit.
+    @discardableResult
+    func commit(_ tracks: [Track]) throws -> [String] {
         let previous = try verifyCurrentIndex()
         try Self.validate(tracks)
         let bytes = try encode(tracks)
-        guard bytes != previous else { return }
+        guard bytes != previous else { return [] }
+        var retired: [Track] = []
+        var diagnostics: [String] = []
+        if exists(backupURL) {
+            do { retired = try decode(readIndex(backupURL)) }
+            catch {
+                diagnostics.append("Previous backup could not be read; its media will not be reclaimed: \(error.localizedDescription)")
+            }
+        }
+        let protected = committedNames.union(Self.names(tracks))
         try previous.write(to: backupURL, options: .atomic)
         try bytes.write(to: indexURL, options: .atomic)
         accept(bytes, tracks: tracks)
+        // Keep media referenced by either current or previous index. Only names
+        // from the retired, validated backup are eligible for reclamation.
+        let eligible = retired.flatMap { [$0.file, $0.artwork].compactMap { $0 } }
+            .filter { !protected.contains(Self.key($0)) }
+        for name in eligible {
+            do {
+                let url = root.appendingPathComponent(name)
+                if exists(url) {
+                    guard isRegularFile(url) else { throw Failure.unsafeMedia }
+                    try fm.removeItem(at: url)
+                }
+            } catch {
+                diagnostics.append("Could not reclaim \(name): \(error.localizedDescription)")
+            }
+        }
+        return diagnostics
     }
 
     func makeIndex(_ tracks: [Track]) -> LibraryIndex { LibraryIndex(tracks) }
@@ -101,6 +130,14 @@ actor LibraryRepository {
         let candidate = try recoveryCandidate()
         let report = try inspectRecovery()
         guard report.canRestore else { throw Failure.missingMedia }
+        for track in candidate.tracks {
+            try Task.checkCancellation()
+            if let expected = track.contentHash {
+                guard try FileDigest.sha256(root.appendingPathComponent(track.file)) == expected.lowercased() else {
+                    throw Failure.damagedMedia
+                }
+            }
+        }
         // Preserve corrupt bytes in a unique recovery file before replacing the
         // index. The backup is not consumed and unknown files remain untouched.
         if let damaged = candidate.damaged {
@@ -229,7 +266,11 @@ actor LibraryRepository {
         guard names.allSatisfy({ Self.validName($0) && !committedNames.contains(Self.key($0)) }) else {
             throw Failure.invalidIndex
         }
-        let urls = names.map { root.appendingPathComponent($0) }
+        // A deletion is deferred until the previous index no longer references
+        // the media. Uncommitted imports are not referenced by either snapshot.
+        let backupNames = exists(backupURL) ? Self.names(try decode(readIndex(backupURL))) : []
+        let urls = names.filter { !backupNames.contains(Self.key($0)) }
+            .map { root.appendingPathComponent($0) }
         guard urls.allSatisfy({ !exists($0) || isRegularFile($0) }) else { throw Failure.unsafeMedia }
         for url in urls where exists(url) { try fm.removeItem(at: url) }
     }

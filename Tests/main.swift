@@ -176,6 +176,41 @@ func runTests() async throws {
     do { try await damagedRepo.removeMedia(linkTrack); fatalError("Symlink deletion accepted") } catch {}
     check(FileManager.default.fileExists(atPath: audio.path), "Symlink destination preserved")
 
+    // Deletion must leave the previous snapshot restorable. A later successful
+    // rotation may reclaim only known retired media, never unrelated files.
+    let retentionRoot = root.appendingPathComponent("retention", isDirectory: true)
+    let retention = LibraryRepository(root: retentionRoot)
+    _ = try await retention.load()
+    let retainedFile = retentionRoot.appendingPathComponent(first.file)
+    let retainedArt = retentionRoot.appendingPathComponent(first.artwork!)
+    let unknown = retentionRoot.appendingPathComponent("unknown.mp3")
+    try Data("audio".utf8).write(to: retainedFile)
+    try Data("art".utf8).write(to: retainedArt)
+    try Data("unknown".utf8).write(to: unknown)
+    var hashed = first
+    hashed.contentHash = try FileDigest.sha256(retainedFile)
+    try await retention.commit([hashed])
+    try await retention.commit([])
+    try await retention.removeMedia(hashed)
+    check(FileManager.default.fileExists(atPath: retainedFile.path), "Previous snapshot retains deleted audio")
+    let retentionIndex = retentionRoot.appendingPathComponent("library.json")
+    let healthyBytes = try Data(contentsOf: retentionIndex)
+    try Data("damaged".utf8).write(to: retentionIndex)
+    try Data("wrong bytes".utf8).write(to: retainedFile)
+    let recoverRetention = LibraryRepository(root: retentionRoot)
+    do { _ = try await recoverRetention.restorePreviousIndex(); fatalError("Checksum mismatch accepted") } catch {}
+    check(try Data(contentsOf: retentionIndex) == Data("damaged".utf8), "Failed checksum recovery preserves index")
+    try Data("audio".utf8).write(to: retainedFile)
+    let recoveredRetention = try await recoverRetention.restorePreviousIndex()
+    check(recoveredRetention == [hashed], "Deleted audio remains recoverable")
+    try healthyBytes.write(to: retentionIndex, options: .atomic)
+    let rotate = LibraryRepository(root: retentionRoot)
+    _ = try await rotate.load()
+    try await rotate.commit([third])
+    check(!FileManager.default.fileExists(atPath: retainedFile.path), "Retired backup audio reclaimed")
+    check(!FileManager.default.fileExists(atPath: retainedArt.path), "Retired backup artwork reclaimed")
+    check(FileManager.default.fileExists(atPath: unknown.path), "Unknown media never reclaimed")
+
     // Stress the real serializer and derived index on a 10,000-track fixture.
     let large = (0..<10_000).map { i in
         Track(file: "track-\(i).flac", title: "Track \(i)", artist: "Artist \(i % 100)", album: "Album \(i % 500)", duration: 180, favorite: i % 10 == 0)

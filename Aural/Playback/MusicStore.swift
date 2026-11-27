@@ -146,9 +146,13 @@ import Combine
     }
 
     private func commit(_ next: [Track]) async throws {
-        do { try await repository.commit(next) }
+        let diagnostics: [String]
+        do { diagnostics = try await repository.commit(next) }
         catch { reportMutationError(error); throw error }
         await apply(next)
+        if !diagnostics.isEmpty {
+            message = diagnostics.joined(separator: "\n")
+        }
     }
 
     func artworkURL(_ track: Track) -> URL? {

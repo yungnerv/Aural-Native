@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0 — Foundation hardening
+- Stage imports privately, validate sources before copying, and publish audio and artwork under separate names without replacing existing files.
+- Surface failed import cleanup; retain media needed by the previous index and reclaim only media from a retired snapshot after a successful commit.
+- Verify recorded audio checksums during explicit recovery; add regression coverage for recovery retention, checksum mismatch and nonregular imports.
+
 ## 0.2.2 — Swift 6 concurrency foundation
 - Isolate observer destruction on the owning main actor.
 - Scope item notifications to their registered item; transfer only immutable generation values to asynchronous callbacks.
