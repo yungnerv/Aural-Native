@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct PlayerView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let progress: PlaybackClock
 
     @EnvironmentObject private var store: MusicStore
@@ -12,7 +13,7 @@ struct PlayerView: View {
                 if let track = store.current {
                     ScrollView {
                         Group {
-                            if geometry.size.width >= 720 {
+                            if geometry.size.width >= 720 && !dynamicTypeSize.isAccessibilitySize {
                                 HStack(alignment: .center, spacing: 32) {
                                     artwork(track, size: min(geometry.size.width * 0.42, 440))
                                     details(track)

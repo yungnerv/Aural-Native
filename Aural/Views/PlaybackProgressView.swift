@@ -37,6 +37,7 @@ struct PlaybackProgressView: View {
             )
             .disabled(progress.duration <= 0 || !progress.duration.isFinite)
             .accessibilityLabel("Playback position")
+            .accessibilityValue("\(clock(displayedValue)) of \(clock(progress.duration))")
             HStack {
                 Text(clock(displayedValue))
                 Spacer()

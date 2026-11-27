@@ -26,12 +26,12 @@ import OSLog
     private let repository: LibraryRepository
     private let importer = AudioImporter()
     private var importTask: Task<Void, Never>?
-    private let engine = PlaybackEngine()
+    private lazy var engine: PlaybackEngine = makePlaybackEngine()
     private var system: NowPlayingController?
     private let root: URL
     private var queue = PlaybackQueue()
     private var actualPlaying = false
-    var current: Track? { currentID.flatMap { index.byID[$0] } }
+    var current: Track? { currentID.flatMap { index[$0] } }
     @Published private(set) var canAdvance = false
     @Published private(set) var canGoBack = false
     var canToggle: Bool { currentID != nil && (playing || libraryReady) }
@@ -48,6 +48,11 @@ import OSLog
     init(root: URL = URL.applicationSupportDirectory.appendingPathComponent("AuralLibrary", isDirectory: true)) {
         self.root = root
         repository = LibraryRepository(root: root)
+        Task { [weak self] in await self?.openLibrary() }
+    }
+
+    private func makePlaybackEngine() -> PlaybackEngine {
+        let engine = PlaybackEngine()
         engine.onProgress = { [weak self] elapsed, duration in
             guard let self, self.currentID != nil else { return }
             let crossedRestartThreshold = (self.elapsed > 3) != (elapsed > 3)
@@ -88,7 +93,7 @@ import OSLog
             previous: { [weak self] in self?.advance(-1) },
             seek: { [weak self] in self?.seek($0) }
         )
-        Task { [weak self] in await self?.openLibrary() }
+        return engine
     }
 
     private func openLibrary() async {
@@ -148,8 +153,9 @@ import OSLog
 
     private func apply(_ next: [Track]) async {
         index = await repository.makeIndex(next)
-        queue.retain(Set(index.byID.keys))
-        if let currentID, index.byID[currentID] == nil {
+        let positions = index.positionByID
+        queue.retain { positions[$0] != nil }
+        if let currentID, index[currentID] == nil {
             self.currentID = nil
             engine.clear()
             playing = false
@@ -157,7 +163,6 @@ import OSLog
             elapsed = 0
             duration = 0
             system?.clear()
-            queue.remove(currentID)
         }
         updateSystem()
     }
@@ -204,8 +209,9 @@ import OSLog
         }
         var next = tracks
         var pending: [Track] = []
-        var hashes = Set(next.compactMap(\.contentHash))
+        var hashes = Set(next.compactMap { $0.contentHash?.lowercased() })
         var errors: [String] = []
+        var hashesUpdated = false
         var duplicates = 0
         var processed = 0
         var lastUpdate = ContinuousClock.now
@@ -216,6 +222,7 @@ import OSLog
                     let digest = try await importer.digest(root.appendingPathComponent(next[i].file))
                     next[i].contentHash = digest
                     hashes.insert(digest)
+                    hashesUpdated = true
                 } catch is CancellationError { throw CancellationError() }
                 catch { errors.append("Could not verify \(next[i].title): \(error.localizedDescription)") }
             }
@@ -239,16 +246,21 @@ import OSLog
                 if pending.count >= batchSize {
                     try Task.checkCancellation()
                     errors += try await commit(next)
+                    hashesUpdated = false
                     pending.removeAll(keepingCapacity: true)
                 }
             }
             try Task.checkCancellation()
-            if next != tracks { errors += try await commit(next) }
+            if hashesUpdated || !pending.isEmpty { errors += try await commit(next) }
             pending.removeAll()
         } catch {
-            for track in pending {
-                do { try await repository.removeMedia(track) }
-                catch { reportMutationError(error); errors.append("Could not clean up \(track.title): \(error.localizedDescription)") }
+            if !pending.isEmpty {
+                // Cleanup must finish even when the importing task was cancelled.
+                let cleanup = Task { [repository, pending] in
+                    try await repository.discardImports(pending)
+                }
+                do { errors += try await cleanup.value }
+                catch { reportMutationError(error); errors.append(error.localizedDescription) }
             }
             if error is CancellationError {
                 errors.append("Import cancelled. Successfully committed tracks were kept.")
@@ -273,12 +285,12 @@ import OSLog
             message = "Reopen the library before playing music."
             return
         }
-        guard let selected = index.byID[track.id] else {
+        guard let selected = index[track.id] else {
             playbackLog.error("Selection rejected: track no longer indexed")
             message = "This track is no longer in the library."
             return
         }
-        load(selected, replacementQueue: list.map(\.id).filter { index.byID[$0] != nil })
+        load(selected, replacementQueue: list.map(\.id).filter { index[$0] != nil })
     }
 
     @discardableResult private func load(_ track: Track, replacementQueue: [UUID]? = nil) -> Bool {
@@ -329,7 +341,7 @@ import OSLog
             return
         }
         if direction < 0, elapsed > 3 { seek(0); return }
-        if let id = queue.adjacent(to: currentID, direction: direction), let track = index.byID[id] {
+        if let id = queue.adjacent(to: currentID, direction: direction), let track = index[id] {
             if !load(track) && automatic { engine.pause() }
         } else if automatic { engine.pause(); seek(0) }
     }
@@ -353,20 +365,14 @@ import OSLog
 
     func remove(_ track: Track) {
         guard libraryReady, !mutationBusy else { message = "The library is busy or unavailable."; return }
-        guard let stored = index.byID[track.id] else { return }
+        guard let stored = index[track.id] else { return }
         mutationBusy = true
         let next = tracks.filter { $0.id != stored.id }
         Task {
             defer { mutationBusy = false }
-            var diagnostics: [String]
+            let diagnostics: [String]
             do { diagnostics = try await commit(next) }
             catch { message = "Track was not removed: \(error.localizedDescription)"; return }
-            queue.remove(stored.id)
-            do { try await repository.removeMedia(stored) }
-            catch {
-                reportMutationError(error)
-                diagnostics.append("Track removed from index; media cleanup failed: \(error.localizedDescription)")
-            }
             if !diagnostics.isEmpty { message = diagnostics.joined(separator: "\n") }
         }
     }

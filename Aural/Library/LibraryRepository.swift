@@ -102,7 +102,13 @@ actor LibraryRepository {
         // A structurally valid retired index is not proof of file ownership.
         // Reclaim only app-generated names whose recorded digests still match.
         // Legacy, modified and otherwise unverified media are preserved.
-        for track in retired {
+        diagnostics += reclaim(retired, protecting: protected)
+        return diagnostics
+    }
+
+    private func reclaim(_ tracks: [Track], protecting protected: Set<String>) -> [String] {
+        var diagnostics: [String] = []
+        for track in tracks {
             for media in Self.media(track) where !protected.contains(Self.key(media.name)) {
                 let url = root.appendingPathComponent(media.name)
                 guard exists(url) else { continue }
@@ -324,20 +330,19 @@ actor LibraryRepository {
         }
     }
 
-    /// Preflight every path before touching any file. The stale-index guard is
-    /// deliberately independent from commit(), including rollback/cleanup paths.
-    func removeMedia(_ track: Track) throws {
+    /// Roll back unpublished imports under the same ownership rules as retired media.
+    func discardImports(_ tracks: [Track]) throws -> [String] {
         _ = try verifyCurrentIndex()
-        let names = [track.file, track.artwork].compactMap { $0 }
-        guard names.allSatisfy({ Self.validName($0) && !committedNames.contains(Self.key($0)) }) else {
-            throw Failure.invalidIndex
-        }
-        // A deletion is deferred until the previous index no longer references
-        // the media. Uncommitted imports are not referenced by either snapshot.
+        try Self.validate(tracks)
+        let names = Self.names(tracks)
+        guard names.isDisjoint(with: committedNames) else { throw Failure.invalidIndex }
         let backupNames = exists(backupURL) ? Self.names(try decode(readIndex(backupURL))) : []
-        let urls = names.filter { !backupNames.contains(Self.key($0)) }
-            .map { root.appendingPathComponent($0) }
-        guard urls.allSatisfy({ !exists($0) || isRegularFile($0) }) else { throw Failure.unsafeMedia }
-        for url in urls where exists(url) { try fm.removeItem(at: url) }
+        for track in tracks {
+            for media in Self.media(track) where !backupNames.contains(Self.key(media.name)) {
+                let url = root.appendingPathComponent(media.name)
+                guard !exists(url) || isRegularFile(url) else { throw Failure.unsafeMedia }
+            }
+        }
+        return reclaim(tracks, protecting: backupNames)
     }
 }

@@ -48,7 +48,7 @@ func runTests() async throws {
     queue.remove(second.id)
     check(queue.adjacent(to: first.id, direction: 1) == third.id, "Queue removal")
     check(queue.adjacent(to: third.id, direction: 1) == nil, "Queue end")
-    queue.retain([third.id])
+    queue.retain { $0 == third.id }
     check(queue.order == [third.id] && queue.original == [third.id], "Queue prunes unavailable tracks")
 
     check(queue.adjacent(to: first.id, direction: 1) == nil, "Pruned queue position removed")
@@ -60,7 +60,7 @@ func runTests() async throws {
     check(queue.adjacent(to: second.id, direction: 1) == queue.order[1], "Shuffle rebuilds position index")
 
     let index = LibraryIndex([first, second, third])
-    check(index.byID[first.id] == first && index.filter("ARTIST").count == 3, "Index and search")
+    check(index[first.id] == first && index.filter("ARTIST").count == 3, "Index and search")
     check(index.filter("", favoritesOnly: true) == [first], "Favorites")
     let searchResult = try index.search("ARTIST", category: .albums)
     check(searchResult.tracks == [first, second, third] && searchResult.groups.count == 3, "Value snapshot search")
@@ -137,7 +137,7 @@ func runTests() async throws {
 
     let media = root.appendingPathComponent("test.FLAC")
     try Data("abc".utf8).write(to: media)
-    do { try await fresh.removeMedia(first); fatalError("Referenced media removed") } catch {}
+    do { _ = try await fresh.discardImports([first]); fatalError("Referenced media removed") } catch {}
     check(FileManager.default.fileExists(atPath: media.path), "Referenced media protected")
     let digest = try FileDigest.sha256(media)
     check(digest == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "SHA-256 fixture")
@@ -188,10 +188,10 @@ func runTests() async throws {
     try await emptyRepo.commit([first])
     let newerBytes = try Data(contentsOf: emptyIndex)
     // Exercise direct deletion before any failed commit can invalidate the actor.
-    do { try await staleDelete.removeMedia(first); fatalError("Direct stale deletion accepted") } catch {}
+    do { _ = try await staleDelete.discardImports([first]); fatalError("Direct stale deletion accepted") } catch {}
     check(FileManager.default.fileExists(atPath: liveMedia.path), "Direct stale deletion preserves actual media")
     do { try await stale.commit([third]); fatalError("Stale write accepted") } catch {}
-    do { try await stale.removeMedia(first); fatalError("Stale deletion accepted") } catch {}
+    do { _ = try await stale.discardImports([first]); fatalError("Stale deletion accepted") } catch {}
     let afterStale = try Data(contentsOf: emptyIndex)
     check(afterStale == newerBytes, "Stale operations preserve latest index")
     let final = try await LibraryRepository(root: emptyRoot).load()
@@ -239,13 +239,15 @@ func runTests() async throws {
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     var directoryTrack = third
     directoryTrack.file = "folder.mp3"
-    do { try await damagedRepo.removeMedia(directoryTrack); fatalError("Directory deletion accepted") } catch {}
+    do { _ = try await damagedRepo.discardImports([directoryTrack]); fatalError("Unsafe rollback accepted") }
+    catch LibraryRepository.Failure.unsafeMedia {}
     check(FileManager.default.fileExists(atPath: folder.path), "Directory preserved")
     let linked = recoveryRoot.appendingPathComponent("link.mp3")
     try FileManager.default.createSymbolicLink(at: linked, withDestinationURL: audio)
     var linkTrack = third
     linkTrack.file = "link.mp3"
-    do { try await damagedRepo.removeMedia(linkTrack); fatalError("Symlink deletion accepted") } catch {}
+    do { _ = try await damagedRepo.discardImports([linkTrack]); fatalError("Unsafe rollback accepted") }
+    catch LibraryRepository.Failure.unsafeMedia {}
     check(FileManager.default.fileExists(atPath: audio.path), "Symlink destination preserved")
 
     // Deletion must leave the previous snapshot restorable. A later successful
@@ -264,9 +266,16 @@ func runTests() async throws {
     try Data("unknown".utf8).write(to: unknown)
     hashed.contentHash = try FileDigest.sha256(retainedFile)
     hashed.artworkHash = try FileDigest.sha256(retainedArt)
+    try Data("replacement".utf8).write(to: retainedFile)
+    let rollback = try await retention.discardImports([hashed])
+    check(rollback == ["Retained modified media: \(hashed.file)"], "Rollback reports changed audio")
+    check(try Data(contentsOf: retainedFile) == Data("replacement".utf8), "Rollback preserves replacement bytes")
+    check(!FileManager.default.fileExists(atPath: retainedArt.path), "Rollback removes verified artwork")
+    try Data("audio".utf8).write(to: retainedFile)
+    try Data("art".utf8).write(to: retainedArt)
     try await retention.commit([hashed])
     try await retention.commit([])
-    try await retention.removeMedia(hashed)
+    _ = try await retention.discardImports([hashed])
     check(FileManager.default.fileExists(atPath: retainedFile.path), "Previous snapshot retains deleted audio")
     let retentionIndex = retentionRoot.appendingPathComponent("library.json")
     let healthyBytes = try Data(contentsOf: retentionIndex)
@@ -370,7 +379,7 @@ func runTests() async throws {
     try await stress.commit(large)
     let reloaded = try await stress.load()
     let indexed = await stress.makeIndex(reloaded)
-    check(reloaded == large && indexed.byID.count == 10_000, "10k track round trip")
+    check(reloaded == large && indexed.positionByID.count == 10_000, "10k track round trip")
     check(indexed.filter("", favoritesOnly: true).count == 1_000, "10k track favorites")
     check(indexed.groups(category: .artists, query: "").count == 100, "10k artist groups")
     for category in LibraryCategory.allCases {

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.8 — Library, playback startup and validation
+- Defer player and remote-command setup until playback. Preserve resume intent on duplicate interruption notifications.
+- Resolve track IDs through the position index and reuse it for queue pruning. Avoid comparing the entire library to detect pending import changes.
+- Verify managed filenames and SHA-256 before import rollback, reuse backup protection for the batch, and deduplicate against uppercase legacy digests.
+- Keep the full player stacked at accessibility text sizes and announce the scrubber position as elapsed time.
+- Export real library and player screenshots for both simulator families, preferring the target models when installed.
+
 ## 0.3.7 — Correct retirement fixture isolation
 - Fix a regression fixture that accidentally reintroduced the same track UUID and both retired filenames, making its four-warning assertion incorrect. Use an independent replacement track and verify exact diagnostics, not only their count.
 - Add a separate regression test confirming that reintroduced current audio and artwork are protected from retirement. Production recovery, cleanup guards, and interface are unchanged.

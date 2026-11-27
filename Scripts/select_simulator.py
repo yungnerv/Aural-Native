@@ -1,4 +1,4 @@
-"""Choose an available iPhone from the installed iOS simulator runtimes."""
+"""Choose an available iOS simulator from the installed iOS simulator runtimes."""
 import json
 import re
 import subprocess
@@ -14,6 +14,7 @@ def main():
         text=True,
     )
     devices = json.loads(result)["devices"]
+    preferred = {"iPhone": "iPhone 15 Pro Max", "iPad": "iPad Pro (12.9-inch) (5th generation)"}[family]
     candidates = []
     for runtime, entries in devices.items():
         match = re.search(r"\.iOS-(\d+)-(\d+)(?:-(\d+))?$", runtime)
@@ -24,10 +25,12 @@ def main():
             continue
         for entry in entries:
             if entry.get("isAvailable") and entry["name"].startswith(family):
-                candidates.append((version, entry["name"], entry["udid"]))
+                candidates.append((entry["name"] == preferred, version, entry["name"], entry["udid"]))
     if not candidates:
         raise SystemExit(f"No available {family} simulator on iOS 26.1 or newer")
-    print(sorted(candidates, reverse=True)[0][2])
+    _, version, model, identifier = max(candidates)
+    print(f"Selected {model} on iOS {version[0]}.{version[1]}.{version[2]}", file=sys.stderr)
+    print(identifier)
 
 
 if __name__ == "__main__":

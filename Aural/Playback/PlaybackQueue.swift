@@ -27,11 +27,10 @@ struct PlaybackQueue: Sendable {
         rebuildPositions()
     }
 
-    mutating func retain(_ allowed: Set<UUID>) {
-        guard original.contains(where: { !allowed.contains($0) }) ||
-              order.contains(where: { !allowed.contains($0) }) else { return }
-        original = original.filter { allowed.contains($0) }
-        order = order.filter { allowed.contains($0) }
+    mutating func retain(_ isAvailable: (UUID) -> Bool) {
+        guard original.contains(where: { !isAvailable($0) }) else { return }
+        original = original.filter(isAvailable)
+        order = order.filter(isAvailable)
         rebuildPositions()
     }
 

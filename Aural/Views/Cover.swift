@@ -29,5 +29,6 @@ struct Cover: View {
                     imageKey = key
                 }
         }
+        .accessibilityHidden(true)
     }
 }

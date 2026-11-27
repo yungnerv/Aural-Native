@@ -278,7 +278,7 @@ import Foundation
 
     private func interruption(type: UInt?, options: UInt) {
         if type == AVAudioSession.InterruptionType.began.rawValue {
-            resumeAfterInterruption = wantsPlayback
+            resumeAfterInterruption = resumeAfterInterruption || wantsPlayback
             sessionActive = false
             wantsPlayback = false
             player.pause()

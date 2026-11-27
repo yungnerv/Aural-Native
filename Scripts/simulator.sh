@@ -19,7 +19,16 @@ xcodebuild -project Aural.xcodeproj -scheme Aural \
   -derivedDataPath "$PWD/DerivedData-simulator" \
   -parallel-testing-enabled NO -resultBundlePath "$PWD/AuralTests-$FAMILY.xcresult" \
   MARKETING_VERSION="$APP_VERSION" CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER:-1}" "$@" test || TEST_STATUS=$?
-if [[ "$TEST_STATUS" -ne 0 ]]; then
+if [[ "$TEST_STATUS" -eq 0 ]]; then
+  xcrun xcresulttool export attachments --path "AuralTests-$FAMILY.xcresult" \
+    --output-path "screenshots/$FAMILY"
+  shopt -s nullglob
+  captures=("screenshots/$FAMILY/"*.png)
+  if (( ${#captures[@]} < 2 )); then
+    echo "Expected library and player PNG attachments for $FAMILY" >&2
+    TEST_STATUS=1
+  fi
+else
   echo "Aural playback diagnostics ($FAMILY):"
   xcrun simctl spawn "$SIMULATOR_ID" log show --last 15m --style compact \
     --info --debug --predicate 'subsystem == "local.aural.player" AND category == "Playback"' ||

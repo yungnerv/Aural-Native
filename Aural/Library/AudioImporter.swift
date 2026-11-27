@@ -139,7 +139,7 @@ actor AudioImporter {
     }
 
     private func thumbnail(_ data: Data) -> Data? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
               let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceThumbnailMaxPixelSize: 1000,
