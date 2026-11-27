@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.6 — Verified recovery and conservative media reclamation
+- Recovery inspection checks recorded audio and artwork SHA-256 digests, reports missing/damaged/unverified media separately, and blocks known-damaged restores. Restore verifies the exact candidate before replacement.
+- New imports record the derived artwork checksum. Optional field remains compatible with existing schema 1/2 indexes. Reject malformed digests and artwork digests without artwork.
+- Reclaim retired media only when the filename matches the app-generated track identity and the bytes match the recorded digest. Preserve unverified legacy or changed media with explicit diagnostics. No changes to playback or native glass presentation.
+- Add host regression coverage for changed audio/artwork, unverified legacy recovery, unrelated filenames and modified files during reclamation.
+
 ## 0.3.5 — Stable native glass mini-player host
 - Use one selected-tab safe-area mini-player host on iPhone and iPad, retaining native glass and system navigation without the tab accessory's unreliable touch activation. Automatic tab minimization and inline accessory mode are removed for now.
 - Verify a single accessible player, 44-point minimum hit targets, actual open/close and mini-player pause/resume, shared state and reopening. Run iPad validation even if iPhone tests fail; IPA publication still requires both suites to succeed.

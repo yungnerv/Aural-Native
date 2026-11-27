@@ -114,6 +114,12 @@ func runTests() async throws {
     check(try Data(contentsOf: schemaOneRoot.appendingPathComponent("library.previous.json")) == futureBackup,
           "Future backup protected")
 
+    var invalidDigest = first
+    invalidDigest.contentHash = "not-a-digest"
+    do { try await fresh.commit([invalidDigest]); fatalError("Malformed digest accepted") } catch {}
+    var orphanArtworkDigest = second
+    orphanArtworkDigest.artworkHash = String(repeating: "a", count: 64)
+    do { try await fresh.commit([orphanArtworkDigest]); fatalError("Artwork checksum without artwork accepted") } catch {}
     var unsafe = first
     unsafe.file = "../outside.mp3"
     do { try await fresh.commit([unsafe]); fatalError("Unsafe path accepted") } catch {}
@@ -206,7 +212,7 @@ func runTests() async throws {
     let damagedRepo = LibraryRepository(root: recoveryRoot)
     do { _ = try await damagedRepo.load(); fatalError("Corruption accepted") } catch {}
     let report = try await damagedRepo.inspectRecovery()
-    check(report.tracks == 1 && report.canRestore, "Recovery inspected")
+    check(report.tracks == 1 && report.canRestore && report.unverifiedMedia == 2, "Legacy recovery reports unverified media")
     try FileManager.default.removeItem(at: audio)
     do { _ = try await damagedRepo.restorePreviousIndex(); fatalError("Missing media recovery accepted") } catch {}
     check(try Data(contentsOf: recoveryIndex) == Data("corruption".utf8), "Failed restore preserves corrupt bytes")
@@ -239,14 +245,17 @@ func runTests() async throws {
     let retentionRoot = root.appendingPathComponent("retention", isDirectory: true)
     let retention = LibraryRepository(root: retentionRoot)
     _ = try await retention.load()
-    let retainedFile = retentionRoot.appendingPathComponent(first.file)
-    let retainedArt = retentionRoot.appendingPathComponent(first.artwork!)
+    var hashed = first
+    hashed.file = "\(hashed.id.uuidString).flac"
+    hashed.artwork = "\(hashed.id.uuidString)-cover.jpg"
+    let retainedFile = retentionRoot.appendingPathComponent(hashed.file)
+    let retainedArt = retentionRoot.appendingPathComponent(hashed.artwork!)
     let unknown = retentionRoot.appendingPathComponent("unknown.mp3")
     try Data("audio".utf8).write(to: retainedFile)
     try Data("art".utf8).write(to: retainedArt)
     try Data("unknown".utf8).write(to: unknown)
-    var hashed = first
     hashed.contentHash = try FileDigest.sha256(retainedFile)
+    hashed.artworkHash = try FileDigest.sha256(retainedArt)
     try await retention.commit([hashed])
     try await retention.commit([])
     try await retention.removeMedia(hashed)
@@ -256,9 +265,18 @@ func runTests() async throws {
     try Data("damaged".utf8).write(to: retentionIndex)
     try Data("wrong bytes".utf8).write(to: retainedFile)
     let recoverRetention = LibraryRepository(root: retentionRoot)
+    let badAudioReport = try await recoverRetention.inspectRecovery()
+    check(!badAudioReport.canRestore && badAudioReport.damagedMedia == 1, "Recovery preview detects changed audio")
     do { _ = try await recoverRetention.restorePreviousIndex(); fatalError("Checksum mismatch accepted") } catch {}
     check(try Data(contentsOf: retentionIndex) == Data("damaged".utf8), "Failed checksum recovery preserves index")
     try Data("audio".utf8).write(to: retainedFile)
+    try Data("wrong artwork".utf8).write(to: retainedArt)
+    let badArtReport = try await recoverRetention.inspectRecovery()
+    check(!badArtReport.canRestore && badArtReport.damagedMedia == 1, "Recovery preview detects changed artwork")
+    do { _ = try await recoverRetention.restorePreviousIndex(); fatalError("Artwork checksum mismatch accepted") } catch {}
+    try Data("art".utf8).write(to: retainedArt)
+    let verifiedReport = try await recoverRetention.inspectRecovery()
+    check(verifiedReport.canRestore && verifiedReport.unverifiedMedia == 0, "Checksummed recovery verified")
     let recoveredRetention = try await recoverRetention.restorePreviousIndex()
     check(recoveredRetention == [hashed], "Deleted audio remains recoverable")
     try healthyBytes.write(to: retentionIndex, options: .atomic)
@@ -268,6 +286,37 @@ func runTests() async throws {
     check(!FileManager.default.fileExists(atPath: retainedFile.path), "Retired backup audio reclaimed")
     check(!FileManager.default.fileExists(atPath: retainedArt.path), "Retired backup artwork reclaimed")
     check(FileManager.default.fileExists(atPath: unknown.path), "Unknown media never reclaimed")
+
+    // A retired index alone must never authorize deleting unrelated or replaced bytes.
+    let guardedRoot = root.appendingPathComponent("guarded-retention", isDirectory: true)
+    let guarded = LibraryRepository(root: guardedRoot)
+    _ = try await guarded.load()
+    var arbitrary = second
+    arbitrary.file = "unrelated.mp3"
+    let arbitraryURL = guardedRoot.appendingPathComponent(arbitrary.file)
+    try Data("unrelated".utf8).write(to: arbitraryURL)
+    arbitrary.contentHash = try FileDigest.sha256(arbitraryURL)
+    var modified = third
+    modified.file = "\(modified.id.uuidString).mp3"
+    let modifiedURL = guardedRoot.appendingPathComponent(modified.file)
+    try Data("original".utf8).write(to: modifiedURL)
+    modified.contentHash = try FileDigest.sha256(modifiedURL)
+    var legacyArt = first
+    legacyArt.file = "\(legacyArt.id.uuidString).flac"
+    legacyArt.artwork = "\(legacyArt.id.uuidString)-cover.jpg"
+    let legacyAudioURL = guardedRoot.appendingPathComponent(legacyArt.file)
+    let legacyArtURL = guardedRoot.appendingPathComponent(legacyArt.artwork!)
+    try Data("legacy audio".utf8).write(to: legacyAudioURL)
+    try Data("legacy artwork".utf8).write(to: legacyArtURL)
+    try await guarded.commit([arbitrary, modified, legacyArt])
+    try await guarded.commit([])
+    try Data("replacement".utf8).write(to: modifiedURL)
+    let retainedDiagnostics = try await guarded.commit([hashed])
+    check(retainedDiagnostics.count == 4, "Unverified and replaced media reported")
+    check(try Data(contentsOf: arbitraryURL) == Data("unrelated".utf8), "Non-managed name preserved even with digest")
+    check(try Data(contentsOf: modifiedURL) == Data("replacement".utf8), "Changed managed bytes preserved")
+    check(FileManager.default.fileExists(atPath: legacyAudioURL.path), "Legacy audio without checksum preserved")
+    check(FileManager.default.fileExists(atPath: legacyArtURL.path), "Legacy artwork without checksum preserved")
 
     // Stress the real serializer and derived index on a 10,000-track fixture.
     let large = (0..<10_000).map { i in

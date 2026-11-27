@@ -107,7 +107,7 @@ struct RootView: View {
                     Label("Library unavailable", systemImage: "exclamationmark.triangle")
                 } description: {
                     if let report = store.recoveryReport {
-                        Text("Previous index: \(report.tracks) tracks, \(report.missingMedia) missing files, \(report.unreferencedFiles) unreferenced files. Existing files are protected.")
+                        Text("Previous index: \(report.tracks) tracks, \(report.missingMedia) missing or unsafe files, \(report.damagedMedia) damaged or unreadable files, \(report.unverifiedMedia) files without checksums, \(report.unreferencedFiles) unreferenced files. Existing files are protected.")
                     } else {
                         Text("Existing files are protected. No changes can be made.")
                     }

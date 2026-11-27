@@ -22,3 +22,5 @@ Cleanliness, organization, lightweight resource use, simplicity, stability, meas
 - Preserve stable track IDs and original audio bytes across schema upgrades. Test older indexes, migration, recovery, and refusal of newer schemas. Missing tags must remain unknown rather than invented.
 - Target full native Apple Liquid Glass across iPhone and iPad presentation. Prefer platform controls, materials and transitions over imitation; support Dynamic Type, VoiceOver, Reduce Motion and Reduce Transparency. Profile frame pacing and resource use before approval. Do not couple appearance to storage or playback.
 - Keep Aural offline-first and free to develop; no new dependencies or services without demonstrated need and explicit approval.
+
+- Report recovery checksum failures before offering restoration; preserve media whose ownership or recorded bytes cannot be verified. Attach actual iPhone and iPad simulator screenshots to completed build reports when available; clearly identify build/version and never substitute imagined images.

@@ -91,11 +91,13 @@ actor AudioImporter {
             let allMetadata = (try? await asset.load(.metadata)) ?? metadata
             let extended = try await EmbeddedMetadata.read(allMetadata, filename: url.lastPathComponent)
             var artName: String?
+            var artHash: String?
             if let item = AVMetadataItem.metadataItems(from: metadata, withKey: AVMetadataKey.commonKeyArtwork, keySpace: .common).first,
                let data = try? await item.load(.dataValue), data.count <= 20_000_000,
                let jpeg = thumbnail(data) {
                 try jpeg.write(to: stagedArt, options: .atomic)
                 artName = art
+                artHash = try digest(stagedArt)
             }
             try Task.checkCancellation()
 
@@ -109,7 +111,7 @@ actor AudioImporter {
             try fm.removeItem(at: staging)
             return Track(id: id, file: name, title: title, artist: artist, album: album,
                          duration: duration.isFinite ? max(0, duration) : 0,
-                         artwork: artName, contentHash: hash, metadata: extended)
+                         artwork: artName, contentHash: hash, metadata: extended, artworkHash: artHash)
         } catch {
             var failures: [String] = []
             for path in published + [staging] {

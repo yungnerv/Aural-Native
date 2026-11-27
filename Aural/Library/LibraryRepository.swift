@@ -13,8 +13,10 @@ actor LibraryRepository {
     struct RecoveryReport: Equatable, Sendable {
         let tracks: Int
         let missingMedia: Int
+        let damagedMedia: Int
+        let unverifiedMedia: Int
         let unreferencedFiles: Int
-        var canRestore: Bool { missingMedia == 0 }
+        var canRestore: Bool { missingMedia == 0 && damagedMedia == 0 }
     }
 
     enum Failure: LocalizedError {
@@ -30,7 +32,7 @@ actor LibraryRepository {
             case .recoveryUnavailable: return "There is no eligible previous index to restore."
             case .missingMedia: return "The previous index references missing or invalid files. No files have been changed."
             case .unsafeMedia: return "A media path is not a regular file. No unsafe deletion was attempted."
-            case .damagedMedia: return "A previous-index audio file does not match its recorded checksum. Recovery was not performed."
+            case .damagedMedia: return "A previous-index media file does not match its recorded checksum. Recovery was not performed."
             }
         }
 
@@ -97,19 +99,27 @@ actor LibraryRepository {
         try previous.write(to: backupURL, options: .atomic)
         try bytes.write(to: indexURL, options: .atomic)
         accept(bytes, tracks: tracks)
-        // Keep media referenced by either current or previous index. Only names
-        // from the retired, validated backup are eligible for reclamation.
-        let eligible = retired.flatMap { [$0.file, $0.artwork].compactMap { $0 } }
-            .filter { !protected.contains(Self.key($0)) }
-        for name in eligible {
-            do {
-                let url = root.appendingPathComponent(name)
-                if exists(url) {
+        // A structurally valid retired index is not proof of file ownership.
+        // Reclaim only app-generated names whose recorded digests still match.
+        // Legacy, modified and otherwise unverified media are preserved.
+        for track in retired {
+            for media in Self.media(track) where !protected.contains(Self.key(media.name)) {
+                let url = root.appendingPathComponent(media.name)
+                guard exists(url) else { continue }
+                do {
                     guard isRegularFile(url) else { throw Failure.unsafeMedia }
+                    guard media.managed, let expected = media.hash else {
+                        diagnostics.append("Retained unverified media: \(media.name)")
+                        continue
+                    }
+                    guard try FileDigest.sha256(url) == expected.lowercased() else {
+                        diagnostics.append("Retained modified media: \(media.name)")
+                        continue
+                    }
                     try fm.removeItem(at: url)
+                } catch {
+                    diagnostics.append("Could not reclaim \(media.name): \(error.localizedDescription)")
                 }
-            } catch {
-                diagnostics.append("Could not reclaim \(name): \(error.localizedDescription)")
             }
         }
         return diagnostics
@@ -121,28 +131,52 @@ actor LibraryRepository {
     /// replace a healthy current index. Missing media blocks restoration.
     func inspectRecovery() throws -> RecoveryReport {
         let candidate = try recoveryCandidate()
-        let names = Self.names(candidate.tracks)
-        let missing = candidate.tracks.flatMap { [$0.file, $0.artwork].compactMap { $0 } }
-            .filter { !isRegularFile(root.appendingPathComponent($0)) }.count
+        return try recoveryReport(for: candidate.tracks)
+    }
+
+    private func recoveryReport(for tracks: [Track]) throws -> RecoveryReport {
+        let names = Self.names(tracks)
+        var missing = 0
+        var damaged = 0
+        var unverified = 0
+        for track in tracks {
+            for media in Self.media(track) {
+                try Task.checkCancellation()
+                let url = root.appendingPathComponent(media.name)
+                guard isRegularFile(url) else {
+                    missing += 1
+                    continue
+                }
+                if let expected = media.hash {
+                    do {
+                        if try FileDigest.sha256(url) != expected.lowercased() { damaged += 1 }
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        damaged += 1
+                    }
+                } else {
+                    unverified += 1
+                }
+            }
+        }
         let entries = try fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey])
         let unreferenced = entries.filter {
             Self.validName($0.lastPathComponent) && !names.contains(Self.key($0.lastPathComponent)) && isRegularFile($0)
         }.count
-        return RecoveryReport(tracks: candidate.tracks.count, missingMedia: missing, unreferencedFiles: unreferenced)
+        return RecoveryReport(tracks: tracks.count, missingMedia: missing,
+                              damagedMedia: damaged, unverifiedMedia: unverified,
+                              unreferencedFiles: unreferenced)
     }
 
     func restorePreviousIndex() throws -> [Track] {
+        // Verify the exact candidate that will be written, not a second read
+        // of the backup that may have changed since inspection.
         let candidate = try recoveryCandidate()
-        let report = try inspectRecovery()
-        guard report.canRestore else { throw Failure.missingMedia }
-        for track in candidate.tracks {
-            try Task.checkCancellation()
-            if let expected = track.contentHash {
-                guard try FileDigest.sha256(root.appendingPathComponent(track.file)) == expected.lowercased() else {
-                    throw Failure.damagedMedia
-                }
-            }
-        }
+        let report = try recoveryReport(for: candidate.tracks)
+        guard report.missingMedia == 0 else { throw Failure.missingMedia }
+        guard report.damagedMedia == 0 else { throw Failure.damagedMedia }
+        try Task.checkCancellation()
         // Preserve corrupt bytes in a unique recovery file before replacing the
         // index. The backup is not consumed and unknown files remain untouched.
         if let damaged = candidate.damaged {
@@ -253,12 +287,38 @@ actor LibraryRepository {
             !normalized.hasPrefix("library.damaged-")
     }
 
+    private struct MediaReference {
+        let name: String
+        let hash: String?
+        let managed: Bool
+    }
+
+    private static func media(_ track: Track) -> [MediaReference] {
+        let id = key(track.id.uuidString)
+        let stem = key(URL(fileURLWithPath: track.file).deletingPathExtension().lastPathComponent)
+        var result = [MediaReference(name: track.file, hash: track.contentHash, managed: stem == id)]
+        if let artwork = track.artwork {
+            result.append(MediaReference(name: artwork, hash: track.artworkHash,
+                                         managed: key(artwork) == "\(id)-cover.jpg"))
+        }
+        return result
+    }
+
+    private static func validDigest(_ value: String?) -> Bool {
+        guard let value else { return true }
+        return value.utf8.count == 64 && value.utf8.allSatisfy {
+            (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0)
+        }
+    }
+
     private static func validate(_ tracks: [Track]) throws {
         let names = tracks.flatMap { [$0.file, $0.artwork].compactMap { $0 } }
         guard Set(tracks.map(\.id)).count == tracks.count,
               Set(names.map(key)).count == names.count,
               names.allSatisfy(validName),
               tracks.allSatisfy({ $0.duration.isFinite && $0.duration >= 0 &&
+                  validDigest($0.contentHash) && validDigest($0.artworkHash) &&
+                  ($0.artwork != nil || $0.artworkHash == nil) &&
                   ($0.metadata?.track?.isValid ?? true) && ($0.metadata?.disc?.isValid ?? true) }) else {
             throw Failure.invalidIndex
         }
