@@ -75,21 +75,33 @@ struct LibraryIndex: Sendable {
             }
         }
         try Task.checkCancellation()
-        let groups = category == .songs ? [] : Self.makeGroups(matches, category: category)
+        let groups = category == .songs ? [] : try Self.makeSearchGroups(matches, category: category)
         try Task.checkCancellation()
         return SearchResult(tracks: matches, groups: groups)
     }
 
+    private static func makeSearchGroups(_ tracks: [Track], category: LibraryCategory) throws -> [Group] {
+        try Task.checkCancellation()
+        return try buildGroups(tracks, category: category, check: { try Task.checkCancellation() })
+    }
+
     private static func makeGroups(_ tracks: [Track], category: LibraryCategory) -> [Group] {
-        let grouped = Dictionary(grouping: tracks) { track -> Group.Key in
+        buildGroups(tracks, category: category, check: {})
+    }
+
+    private static func buildGroups(_ tracks: [Track], category: LibraryCategory, check: () throws -> Void) rethrows -> [Group] {
+        let grouped = try Dictionary(grouping: tracks) { track -> Group.Key in
+            try check()
             if category == .artists { return .init(category: category, album: "", artist: track.artist, single: nil) }
             return .init(category: category, album: track.album, artist: track.albumArtist, single: track.album == "Unknown album" ? track.id : nil)
         }
-        return grouped.compactMap { key, songs in
+        return try grouped.compactMap { key, songs in
+            try check()
             guard let first = songs.first else { return nil }
             let title = category == .artists ? first.artist : (key.single == nil ? first.album : first.title)
             // Disc and track order are stable; unnumbered tracks retain import order.
-            let ordered = category == .albums ? songs.enumerated().sorted { lhs, rhs in
+            let ordered = category == .albums ? try songs.enumerated().sorted { lhs, rhs in
+                try check()
                 let leftDisc = lhs.element.metadata?.disc?.number ?? 1
                 let rightDisc = rhs.element.metadata?.disc?.number ?? 1
                 if leftDisc != rightDisc { return leftDisc < rightDisc }
@@ -100,6 +112,7 @@ struct LibraryIndex: Sendable {
             }.map(\.element) : songs
             return Group(id: key, title: title, subtitle: category == .artists ? "\(songs.count) songs" : key.artist, tracks: ordered)
         }.sorted {
+            try check()
             let titleOrder = $0.title.localizedStandardCompare($1.title)
             if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
             let subtitleOrder = $0.subtitle.localizedStandardCompare($1.subtitle)
