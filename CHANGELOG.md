@@ -6,7 +6,7 @@
 - Verify managed filenames and SHA-256 before import rollback, reuse backup protection for the batch, and deduplicate against uppercase legacy digests.
 - Keep the full player stacked at accessibility text sizes and announce the scrubber position as elapsed time.
 - Scan search text in track order, eliminating a UUID lookup per candidate. Cancel superseded pull-request workflows and use the standard Intel macOS 26 runner with the pinned Xcode build.
-- Export real library and player screenshots for both simulator families, preferring the target models when installed.
+- Export real library and player screenshots for both simulator families, creating the iPhone 15 Pro Max and fifth-generation 12.9-inch iPad Pro simulators when supported. Collect launch metrics in the test results and verify the accessible scrubber value.
 
 ## 0.3.7 — Correct retirement fixture isolation
 - Fix a regression fixture that accidentally reintroduced the same track UUID and both retired filenames, making its four-warning assertion incorrect. Use an independent replacement track and verify exact diagnostics, not only their count.

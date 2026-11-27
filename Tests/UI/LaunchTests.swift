@@ -12,6 +12,17 @@ final class LaunchTests: XCTestCase {
     }
 
     @MainActor
+    func testLaunchPerformance() {
+        let app = XCUIApplication()
+        let options = XCTMeasureOptions()
+        options.iterationCount = 3
+        measure(metrics: [XCTApplicationLaunchMetric()], options: options) {
+            app.launch()
+        }
+        XCTAssertTrue(app.staticTexts["No music"].waitForExistence(timeout: 20))
+    }
+
+    @MainActor
     func testNativePlayerPresentation() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--aural-ui-fixture"]
@@ -64,6 +75,11 @@ final class LaunchTests: XCTestCase {
         toggle.tap()
         XCTAssertEqual(toggle.label, "Play")
         capture(app, named: "Native Now Playing")
+
+        let position = app.sliders["Playback position"]
+        XCTAssertTrue(position.exists)
+        XCTAssertTrue((position.value as? String)?.contains(" of ") == true,
+                      "The scrubber must announce elapsed and total time")
 
         let close = app.buttons["close-player"]
         XCTAssertTrue(close.waitForExistence(timeout: 10))
