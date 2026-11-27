@@ -205,6 +205,49 @@ final class NativeIntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testMediaResetRequiresExplicitResumeAndRestoresPosition() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("fixture.wav")
+        try fixture(at: url)
+        let engine = PlaybackEngine()
+        defer { engine.clear() }
+        var position = 0.0
+        var completedSeeks = 0
+        var resetReported = false
+        engine.onProgress = { elapsed, _ in position = elapsed }
+        engine.onSeek = { completedSeeks += 1 }
+        engine.onFailure = { message in
+            if message.contains("Audio services restarted") { resetReported = true }
+        }
+        try engine.prepare(url)
+        XCTAssertTrue(engine.seek(0.5))
+        let seekDeadline = ContinuousClock.now + .seconds(5)
+        while completedSeeks == 0 && ContinuousClock.now < seekDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(completedSeeks, 1)
+        XCTAssertEqual(position, 0.5, accuracy: 0.1)
+        NotificationCenter.default.post(name: AVAudioSession.mediaServicesWereResetNotification, object: nil)
+        let resetDeadline = ContinuousClock.now + .seconds(5)
+        while !resetReported && ContinuousClock.now < resetDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(resetReported)
+        XCTAssertFalse(engine.wantsPlayback)
+        XCTAssertFalse(engine.isPlaying)
+        try engine.resume()
+        let resumeDeadline = ContinuousClock.now + .seconds(5)
+        while completedSeeks < 2 && ContinuousClock.now < resumeDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(completedSeeks, 2)
+        XCTAssertGreaterThanOrEqual(position, 0.4)
+        XCTAssertTrue(engine.wantsPlayback)
+    }
+
+    @MainActor
     func testObserverOwnerReleasesAfterClear() throws {
         let player = AVPlayer()
         var engine: PlaybackEngine? = PlaybackEngine(player: player)
