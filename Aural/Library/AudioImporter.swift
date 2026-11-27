@@ -92,7 +92,7 @@ actor AudioImporter {
             let parts = filename.components(separatedBy: " - ")
             let title = await value(.commonKeyTitle) ?? (parts.count == 2 ? parts[1] : filename)
             let artist = await value(.commonKeyArtist) ?? (parts.count == 2 ? parts[0] : "Unknown artist")
-            let album = await value(.commonKeyAlbumName) ?? "Unknown album"
+            let albumTag = await value(.commonKeyAlbumName)
             let allMetadata = (try? await asset.load(.metadata)) ?? metadata
             try Task.checkCancellation()
             let extended = try await EmbeddedMetadata.read(allMetadata, filename: url.lastPathComponent)
@@ -116,9 +116,9 @@ actor AudioImporter {
                 published.append(artworkDestination)
             }
             try fm.removeItem(at: staging)
-            return Track(id: id, file: name, title: title, artist: artist, album: album,
+            return Track(id: id, file: name, title: title, artist: artist, album: albumTag ?? "Unknown album",
                          duration: duration.isFinite ? max(0, duration) : 0,
-                         artwork: artName, contentHash: hash, metadata: extended, artworkHash: artHash)
+                         artwork: artName, contentHash: hash, metadata: extended, artworkHash: artHash, hasAlbumTag: albumTag != nil)
         } catch {
             var failures: [String] = []
             for path in published + [staging] {

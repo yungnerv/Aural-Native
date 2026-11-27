@@ -8,6 +8,22 @@ actor LibraryRepository {
     struct Snapshot: Codable, Sendable {
         let schemaVersion: Int
         let tracks: [Track]
+        var generation: UUID? = nil
+    }
+
+    private struct FavoriteChanges: Codable {
+        var formatVersion = 1
+        let baseHash: String
+        var values: [UUID: Bool]
+
+        func applying(to tracks: [Track]) -> [Track] {
+            tracks.map { track in
+                guard let favorite = values[track.id] else { return track }
+                var updated = track
+                updated.favorite = favorite
+                return updated
+            }
+        }
     }
 
     struct RecoveryReport: Equatable, Sendable {
@@ -49,6 +65,9 @@ actor LibraryRepository {
     private var opened = false
     private var previousBytes: Data?
     private var committedNames = Set<String>()
+    private var favoritesURL: URL { root.appendingPathComponent(".favorite-changes.json") }
+    private var favoriteBytes: Data?
+    private var changes: FavoriteChanges?
     private var indexURL: URL { root.appendingPathComponent("library.json") }
     private var backupURL: URL { root.appendingPathComponent("library.previous.json") }
 
@@ -72,8 +91,32 @@ actor LibraryRepository {
         }
         let bytes = try readIndex(indexURL)
         let snapshot = try decode(bytes)
+        try loadFavoriteChanges(for: bytes)
         accept(bytes, names: snapshot.names)
-        return snapshot.tracks
+        return changes?.applying(to: snapshot.tracks) ?? snapshot.tracks
+    }
+
+    private func loadFavoriteChanges(for bytes: Data) throws {
+        favoriteBytes = exists(favoritesURL) ? try readIndex(favoritesURL) : nil
+        guard let favoriteBytes else { changes = nil; return }
+        let saved = try JSONDecoder().decode(FavoriteChanges.self, from: favoriteBytes)
+        guard saved.formatVersion == 1, Self.validDigest(saved.baseHash) else { throw Failure.invalidIndex }
+        changes = saved.baseHash == FileDigest.sha256(bytes) ? saved : nil
+    }
+
+    func setFavorite(_ value: Bool, id: UUID, in index: LibraryIndex) throws -> LibraryIndex {
+        let base = try verifyCurrentIndex()
+        guard let track = index[id] else { throw Failure.invalidIndex }
+        guard track.favorite != value else { return index }
+        var next = changes ?? FavoriteChanges(baseHash: FileDigest.sha256(base), values: [:])
+        next.values[id] = value
+        let bytes = try JSONEncoder().encode(next)
+        try bytes.write(to: favoritesURL, options: .atomic)
+        changes = next
+        favoriteBytes = bytes
+        var updated = index
+        updated.setFavorite(value, id: id)
+        return updated
     }
 
     /// Returns cleanup diagnostics separately from the committed transaction.
@@ -82,7 +125,8 @@ actor LibraryRepository {
     func commit(_ tracks: [Track]) throws -> [String] {
         let previous = try verifyCurrentIndex()
         let names = try Self.validatedNames(tracks)
-        let bytes = try encode(tracks)
+        // A fresh generation prevents a stale sidecar from matching a later identical library.
+        let bytes = try encode(tracks, generation: favoriteBytes == nil ? nil : UUID())
         guard bytes != previous else { return [] }
         var retired: [Track] = []
         var diagnostics: [String] = []
@@ -96,9 +140,24 @@ actor LibraryRepository {
             }
         }
         let protected = committedNames.union(names)
-        try previous.write(to: backupURL, options: .atomic)
+        let backup: Data
+        if let changes {
+            backup = try encode(changes.applying(to: decode(previous).tracks))
+        } else {
+            backup = previous
+        }
+        try backup.write(to: backupURL, options: .atomic)
         try bytes.write(to: indexURL, options: .atomic)
         accept(bytes, names: names)
+        changes = nil
+        if favoriteBytes != nil {
+            do {
+                try fm.removeItem(at: favoritesURL)
+                favoriteBytes = nil
+            } catch {
+                diagnostics.append("Saved the library; retained the inactive favorites file: \(error.localizedDescription)")
+            }
+        }
         // A structurally valid retired index is not proof of file ownership.
         // Reclaim only app-generated names whose recorded digests still match.
         // Legacy, modified and otherwise unverified media are preserved.
@@ -193,10 +252,14 @@ actor LibraryRepository {
         let current = exists(indexURL) ? try readIndex(indexURL) : nil
         guard current == candidate.damaged,
               try readIndex(backupURL) == candidate.backup else { throw Failure.changedOnDisk }
-        let bytes = try encode(candidate.tracks)
+        // Read and validate the sidecar before replacing a damaged index.
+        try loadFavoriteChanges(for: candidate.backup)
+        let restored = changes?.applying(to: candidate.tracks) ?? candidate.tracks
+        let bytes = try encode(restored, generation: favoriteBytes == nil ? nil : UUID())
         try bytes.write(to: indexURL, options: .atomic)
         accept(bytes, names: candidate.names)
-        return candidate.tracks
+        changes = nil
+        return restored
     }
 
     private func recoveryCandidate() throws -> (tracks: [Track], names: Set<String>, damaged: Data?, backup: Data) {
@@ -226,12 +289,14 @@ actor LibraryRepository {
         opened = false
         previousBytes = nil
         committedNames.removeAll()
+        favoriteBytes = nil
+        changes = nil
     }
 
-    private func encode(_ tracks: [Track]) throws -> Data {
+    private func encode(_ tracks: [Track], generation: UUID? = nil) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        return try encoder.encode(Snapshot(schemaVersion: Self.currentSchema, tracks: tracks))
+        return try encoder.encode(Snapshot(schemaVersion: Self.currentSchema, tracks: tracks, generation: generation))
     }
 
     private func decode(_ bytes: Data) throws -> (tracks: [Track], names: Set<String>) {
@@ -270,7 +335,8 @@ actor LibraryRepository {
     private func verifyCurrentIndex() throws -> Data {
         guard opened, let previousBytes else { throw Failure.notOpen }
         do {
-            guard try readIndex(indexURL) == previousBytes else { throw Failure.changedOnDisk }
+            let onDiskFavorites = exists(favoritesURL) ? try readIndex(favoritesURL) : nil
+            guard onDiskFavorites == favoriteBytes, try readIndex(indexURL) == previousBytes else { throw Failure.changedOnDisk }
             return previousBytes
         } catch {
             invalidate()

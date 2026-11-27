@@ -6,10 +6,10 @@ struct PlaybackQueue: Sendable {
     private var positions: [UUID: Int] = [:]
 
     private mutating func rebuildPositions() {
-        positions = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($0.element, $0.offset) })
+        positions = Dictionary(uniqueKeysWithValues: order.enumerated().lazy.map { ($0.element, $0.offset) })
     }
 
-    mutating func replace(_ ids: [UUID], current: UUID, shuffled: Bool) {
+    mutating func replace(_ ids: some Sequence<UUID>, current: UUID, shuffled: Bool) {
         var seen = Set<UUID>()
         original = ids.filter { seen.insert($0).inserted }
         if !seen.contains(current) { original.insert(current, at: 0) }

@@ -15,7 +15,8 @@ import OSLog
     @Published private(set) var playbackRevision = 0
     @Published private(set) var playing = false
     @Published private(set) var importing = false
-    @Published private(set) var importProgress = 0.0
+    @Published private(set) var importProgress: Double?
+    private var selectionTask: Task<Void, Never>?
     @Published private(set) var lastImportReport: [String] = []
     @Published var message: String?
     @Published private(set) var shuffle = false
@@ -200,7 +201,7 @@ import OSLog
             return
         }
         importing = true
-        importProgress = 0
+        importProgress = nil
         lastImportReport = []
         mutationBusy = true
         defer {
@@ -227,6 +228,7 @@ import OSLog
                 } catch is CancellationError { throw CancellationError() }
                 catch { errors.append("Could not verify \(next[i].title): \(error.localizedDescription)") }
             }
+            importProgress = 0
             for url in urls {
                 try Task.checkCancellation()
                 do {
@@ -286,20 +288,36 @@ import OSLog
             message = "Reopen the library before playing music."
             return
         }
-        guard let selected = index[track.id] else {
-            playbackLog.error("Selection rejected: track no longer indexed")
-            message = "This track is no longer in the library."
-            return
+        selectionTask?.cancel()
+        selectionTask = Task {
+            while !Task.isCancelled, libraryReady {
+                guard let selected = index[track.id] else {
+                    message = "This track is no longer in the library."
+                    return
+                }
+                let revision = index.revision
+                let shuffled = shuffle
+                let prepared = await Self.prepareQueue(list, available: index.positionByID, current: track.id, shuffled: shuffled)
+                guard !Task.isCancelled, libraryReady else { return }
+                guard revision == index.revision, shuffled == shuffle else { continue }
+                load(selected, replacementQueue: prepared)
+                return
+            }
         }
-        load(selected, replacementQueue: list.map(\.id).filter { index[$0] != nil })
     }
 
-    @discardableResult private func load(_ track: Track, replacementQueue: [UUID]? = nil) -> Bool {
+    @concurrent private static func prepareQueue(_ list: [Track], available: [UUID: Int],
+                                                  current: UUID, shuffled: Bool) async -> PlaybackQueue {
+        var queue = PlaybackQueue()
+        let ids = list.lazy.prefix(while: { _ in !Task.isCancelled }).map(\.id).filter { available[$0] != nil }
+        queue.replace(ids, current: current, shuffled: shuffled)
+        return queue
+    }
+
+    @discardableResult private func load(_ track: Track, replacementQueue: PlaybackQueue? = nil) -> Bool {
         do {
             try engine.prepare(root.appendingPathComponent(track.file))
-            if let replacementQueue {
-                queue.replace(replacementQueue, current: track.id, shuffled: shuffle)
-            }
+            if let replacementQueue { queue = replacementQueue }
             currentID = track.id
             playbackRevision = engine.itemGeneration
             elapsed = 0
@@ -322,6 +340,7 @@ import OSLog
     }
 
     func toggle() {
+        selectionTask?.cancel()
         if engine.wantsPlayback { engine.pause() } else { resume() }
     }
 
@@ -337,6 +356,7 @@ import OSLog
     }
 
     func advance(_ direction: Int, automatic: Bool = false) {
+        if !automatic { selectionTask?.cancel() }
         guard libraryReady, let currentID else {
             if automatic { engine.pause() }
             return
@@ -349,16 +369,14 @@ import OSLog
 
     func favorite(_ track: Track) {
         guard libraryReady, !mutationBusy else { message = "The library is busy or unavailable."; return }
-        guard let i = index.positionByID[track.id] else { return }
+        guard let stored = index[track.id] else { return }
         mutationBusy = true
-        var next = tracks
-        next[i].favorite.toggle()
         Task {
             defer { mutationBusy = false }
             do {
-                let diagnostics = try await commit(next)
-                if !diagnostics.isEmpty { message = diagnostics.joined(separator: "\n") }
+                index = try await repository.setFavorite(!stored.favorite, id: stored.id, in: index)
             } catch {
+                reportMutationError(error)
                 message = "Favorite was not saved: \(error.localizedDescription)"
             }
         }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.13 — Incremental favorites and library responsiveness
+- Save favorites atomically against the current catalog and update only the affected groups. Prepare selection queues away from the main actor. Show a distinct verification phase when importing legacy libraries.
+- Return consistent full artist and album groups from search. Distinguish explicitly tagged albums from untagged singles on new imports. Expand populated UI captures and isolate simulator families on independent runners.
+
 ## 0.3.12 — Charcoal backgrounds and native glass
 - Use a shared charcoal gradient behind app screens and scrolling track rows. Retain native Liquid Glass navigation and playback controls, with blue selection and a white primary transport button.
 

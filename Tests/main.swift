@@ -40,6 +40,18 @@ func runTests() async throws {
     let metadataRoundTrip = try JSONDecoder().decode(Track.self, from: JSONEncoder().encode(collaboration))
     check(metadataRoundTrip == collaboration, "Extended metadata round trip")
 
+    var namedUnknown = second
+    namedUnknown.hasAlbumTag = true
+    var anotherNamed = third
+    anotherNamed.hasAlbumTag = true
+    let named = LibraryIndex([namedUnknown, anotherNamed])
+    check(named.groups(category: .albums).count == 1, "Explicit Unknown album tag groups normally")
+    let artistResults = try compilation.search("Composer", category: .artists)
+    check(artistResults.groups.first?.subtitle == "1 song", "Singular artist count")
+    var titled = second
+    titled.title = "Solo match"
+    let partial = try LibraryIndex([first, titled]).search("Solo match", category: .artists)
+    check(partial.groups.first?.tracks.count == 2, "Artist result opens full artist")
     var queue = PlaybackQueue()
     queue.replace([first.id, second.id, third.id], current: second.id, shuffled: true)
     check(queue.order.first == second.id && Set(queue.order) == Set([first.id, second.id, third.id]), "Shuffle membership")
@@ -101,6 +113,29 @@ func runTests() async throws {
     let migrated = try await fresh.load()
     check(migrated == [first, third], "Versioned reload")
 
+    let favoritesRoot = root.appendingPathComponent("favorite-tests")
+    let writer = LibraryRepository(root: favoritesRoot)
+    _ = try await writer.load()
+    try await writer.commit([first, second])
+    let mainIndex = favoritesRoot.appendingPathComponent("library.json")
+    let base = try Data(contentsOf: mainIndex)
+    let initialIndex = LibraryIndex([first, second])
+    let favoriteIndex = try await writer.setFavorite(true, id: second.id, in: initialIndex)
+    check(favoriteIndex.revision == initialIndex.revision && favoriteIndex.favorites.map(\.id) == [first.id, second.id],
+          "Favorite update preserves search revision and import order")
+    check(favoriteIndex.group(for: favoriteIndex.groups(category: .artists)[0].id)?.tracks.last?.favorite == true,
+          "Favorite updated in artist navigation")
+    check(try Data(contentsOf: mainIndex) == base, "Favorite toggle leaves catalog bytes untouched")
+    let reader = LibraryRepository(root: favoritesRoot)
+    check(try await reader.load() == favoriteIndex.tracks, "Favorites survive reopen")
+    let removed = try await reader.setFavorite(false, id: first.id, in: favoriteIndex)
+    do { _ = try await writer.setFavorite(false, id: second.id, in: favoriteIndex); fatalError("Lost concurrent favorite change") }
+    catch LibraryRepository.Failure.changedOnDisk {}
+    try await reader.commit(removed.tracks + [third])
+    check(try await reader.load() == removed.tracks + [third], "Structural mutation folds favorites into catalog")
+    let archived = try JSONDecoder().decode(LibraryRepository.Snapshot.self, from:
+        Data(contentsOf: favoritesRoot.appendingPathComponent("library.previous.json")))
+    check(archived.tracks == removed.tracks, "Previous catalog includes favorite changes")
     // Explicit version-one fixture must remain readable and preserve its bytes until mutation.
     let schemaOneRoot = root.appendingPathComponent("schema-one", isDirectory: true)
     try FileManager.default.createDirectory(at: schemaOneRoot, withIntermediateDirectories: true)

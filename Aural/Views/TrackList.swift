@@ -7,6 +7,7 @@ struct TrackList: View {
     var body: some View {
         List(songs) { track in
             let selected = store.currentID == track.id
+            let favorite = store.index[track.id]?.favorite ?? track.favorite
             Button {
                 store.play(track, in: songs)
             } label: {
@@ -44,15 +45,15 @@ struct TrackList: View {
             .disabled(!store.libraryReady)
             .swipeActions {
                 Button { store.favorite(track) } label: {
-                    Label(track.favorite ? "Remove favorite" : "Favorite",
-                          systemImage: track.favorite ? "heart.slash" : "heart")
+                    Label(favorite ? "Remove favorite" : "Favorite",
+                          systemImage: favorite ? "heart.slash" : "heart")
                 }
                 .tint(.blue)
                 .disabled(store.mutationBusy || !store.libraryReady)
             }
             .contextMenu {
                 Button { store.favorite(track) } label: {
-                    Label(track.favorite ? "Remove favorite" : "Favorite", systemImage: "heart")
+                    Label(favorite ? "Remove favorite" : "Favorite", systemImage: "heart")
                 }
                 .disabled(store.mutationBusy || !store.libraryReady)
                 Button(role: .destructive) { store.remove(track) } label: {

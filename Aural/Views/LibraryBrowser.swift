@@ -37,7 +37,7 @@ struct LibraryBrowser: View {
             if store.importing {
                 HStack(spacing: 12) {
                     ProgressView(value: store.importProgress) {
-                        Text("Importing music…")
+                        Text(store.importProgress == nil ? "Verifying existing music…" : "Importing music…")
                     }
                     Button("Cancel", role: .cancel) { store.cancelImport() }
                         .font(.subheadline)
@@ -107,6 +107,7 @@ struct LibraryBrowser: View {
                                 Text(group.subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                             }.foregroundStyle(.primary)
                         }.buttonStyle(.plain)
+                        .accessibilityIdentifier("group-\(group.title)")
                     }
                 }
             }.padding()

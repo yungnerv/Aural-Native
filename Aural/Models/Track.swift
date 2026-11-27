@@ -13,6 +13,10 @@ struct Track: Codable, Identifiable, Hashable, Sendable {
     var metadata: TrackMetadata? = nil
     var artworkHash: String? = nil
 
+    // Older indexes used the display label as a sentinel. New imports record the tag's presence.
+    var hasAlbumTag: Bool? = nil
+    var isSingle: Bool { !(hasAlbumTag ?? (album != "Unknown album")) }
+
     var albumArtist: String { metadata?.albumArtist ?? artist }
     var format: String { URL(fileURLWithPath: file).pathExtension.uppercased() }
 }

@@ -20,17 +20,17 @@ struct LibraryIndex: Sendable {
         let id: Key
         let title: String
         let subtitle: String
-        let tracks: [Track]
+        fileprivate(set) var tracks: [Track]
     }
 
-    let tracks: [Track]
-    let favorites: [Track]
+    private(set) var tracks: [Track]
+    private(set) var favorites: [Track]
     subscript(id: UUID) -> Track? { positionByID[id].map { tracks[$0] } }
     let positionByID: [UUID: Int]
     private let searchable: [String]
-    private let albums: [Group]
-    private let artists: [Group]
-    private let groupsByKey: [Group.Key: Group]
+    private var albums: [Group]
+    private var artists: [Group]
+    private let groupPositions: [Group.Key: Int]
 
     init(_ tracks: [Track]) {
         self.tracks = tracks
@@ -43,10 +43,36 @@ struct LibraryIndex: Sendable {
         }
         albums = Self.makeGroups(tracks, category: .albums)
         artists = Self.makeGroups(tracks, category: .artists)
-        groupsByKey = Dictionary(uniqueKeysWithValues: (albums + artists).map { ($0.id, $0) })
+        var positions: [Group.Key: Int] = [:]
+        for groups in [albums, artists] {
+            for (i, group) in groups.enumerated() { positions[group.id] = i }
+        }
+        groupPositions = positions
     }
 
-    func group(for key: Group.Key) -> Group? { groupsByKey[key] }
+    func group(for key: Group.Key) -> Group? {
+        groupPositions[key].map { groups(category: key.category)[$0] }
+    }
+
+    mutating func setFavorite(_ value: Bool, id: UUID) {
+        guard let i = positionByID[id], tracks[i].favorite != value else { return }
+        tracks[i].favorite = value
+        let track = tracks[i]
+        if value {
+            let insertion = favorites.firstIndex { (positionByID[$0.id] ?? Int.max) > i }
+            favorites.insert(track, at: insertion ?? favorites.endIndex)
+        } else {
+            favorites.removeAll { $0.id == id }
+        }
+        for category in [LibraryCategory.albums, .artists] {
+            guard let group = groupPositions[Self.key(for: track, category: category)] else { continue }
+            if category == .albums, let row = albums[group].tracks.firstIndex(where: { $0.id == id }) {
+                albums[group].tracks[row] = track
+            } else if category == .artists, let row = artists[group].tracks.firstIndex(where: { $0.id == id }) {
+                artists[group].tracks[row] = track
+            }
+        }
+    }
 
     func groups(category: LibraryCategory) -> [Group] {
         switch category {
@@ -68,40 +94,33 @@ struct LibraryIndex: Sendable {
             return SearchResult(tracks: tracks, groups: groups(category: category))
         }
         var matches: [Track] = []
+        var matchedGroups = Set<Group.Key>()
         for offset in searchable.indices {
             if offset.isMultiple(of: 256) { try Task.checkCancellation() }
             if searchable[offset].localizedCaseInsensitiveContains(query) {
-                matches.append(tracks[offset])
+                let track = tracks[offset]
+                matches.append(track)
+                if category != .songs { matchedGroups.insert(Self.key(for: track, category: category)) }
             }
         }
-        try Task.checkCancellation()
-        let groups = category == .songs ? [] : try Self.makeSearchGroups(matches, category: category)
-        try Task.checkCancellation()
-        return SearchResult(tracks: matches, groups: groups)
+        let results = try groups(category: category).filter {
+            try Task.checkCancellation()
+            return matchedGroups.contains($0.id)
+        }
+        return SearchResult(tracks: matches, groups: results)
     }
 
-    private static func makeSearchGroups(_ tracks: [Track], category: LibraryCategory) throws -> [Group] {
-        try Task.checkCancellation()
-        return try buildGroups(tracks, category: category, check: { try Task.checkCancellation() })
+    private static func key(for track: Track, category: LibraryCategory) -> Group.Key {
+        if category == .artists { return .init(category: category, album: "", artist: track.artist, single: nil) }
+        return .init(category: category, album: track.album, artist: track.albumArtist, single: track.isSingle ? track.id : nil)
     }
 
     private static func makeGroups(_ tracks: [Track], category: LibraryCategory) -> [Group] {
-        buildGroups(tracks, category: category, check: {})
-    }
-
-    private static func buildGroups(_ tracks: [Track], category: LibraryCategory, check: () throws -> Void) rethrows -> [Group] {
-        let grouped = try Dictionary(grouping: tracks) { track -> Group.Key in
-            try check()
-            if category == .artists { return .init(category: category, album: "", artist: track.artist, single: nil) }
-            return .init(category: category, album: track.album, artist: track.albumArtist, single: track.album == "Unknown album" ? track.id : nil)
-        }
-        return try grouped.compactMap { key, songs in
-            try check()
+        Dictionary(grouping: tracks) { key(for: $0, category: category) }.compactMap { key, songs in
             guard let first = songs.first else { return nil }
             let title = category == .artists ? first.artist : (key.single == nil ? first.album : first.title)
             // Disc and track order are stable; unnumbered tracks retain import order.
-            let ordered = category == .albums ? try songs.enumerated().sorted { lhs, rhs in
-                try check()
+            let ordered = category == .albums ? songs.enumerated().sorted { lhs, rhs in
                 let leftDisc = lhs.element.metadata?.disc?.number ?? 1
                 let rightDisc = rhs.element.metadata?.disc?.number ?? 1
                 if leftDisc != rightDisc { return leftDisc < rightDisc }
@@ -110,9 +129,8 @@ struct LibraryIndex: Sendable {
                 if leftTrack != rightTrack { return leftTrack < rightTrack }
                 return lhs.offset < rhs.offset
             }.map(\.element) : songs
-            return Group(id: key, title: title, subtitle: category == .artists ? "\(songs.count) songs" : key.artist, tracks: ordered)
+            return Group(id: key, title: title, subtitle: category == .artists ? (songs.count == 1 ? "1 song" : "\(songs.count) songs") : key.artist, tracks: ordered)
         }.sorted {
-            try check()
             let titleOrder = $0.title.localizedStandardCompare($1.title)
             if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
             let subtitleOrder = $0.subtitle.localizedStandardCompare($1.subtitle)

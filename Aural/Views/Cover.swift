@@ -13,11 +13,11 @@ struct Cover: View {
             let size = pixels <= 160 ? 160 : (pixels <= 512 ? 512 : 1024)
             let key = url.map { "\($0.path)#\(size)" }
             ZStack {
-                RoundedRectangle(cornerRadius: 12).fill(Color(red: 0.15, green: 0.22, blue: 0.24))
+                RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.16))
                 if let image, let key, imageKey == key {
                     Image(uiImage: image).resizable().scaledToFill()
                 } else {
-                    Image(systemName: "music.note").font(.system(size: max(15, geo.size.width * 0.27))).foregroundStyle(.mint.opacity(0.7))
+                    Image(systemName: "music.note").font(.system(size: max(15, geo.size.width * 0.27))).foregroundStyle(.secondary)
                 }
             }.frame(width: geo.size.width, height: geo.size.height)
                 .clipped().clipShape(RoundedRectangle(cornerRadius: 12))

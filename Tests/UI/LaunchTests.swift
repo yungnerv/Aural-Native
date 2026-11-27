@@ -23,6 +23,42 @@ final class LaunchTests: XCTestCase {
     }
 
     @MainActor
+    func testLibraryScreens() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--aural-ui-fixture"]
+        app.launch()
+        let album = app.buttons["group-Fixture Album"]
+        XCTAssertTrue(album.waitForExistence(timeout: 30))
+        capture(app, named: "Albums")
+        album.tap()
+        XCTAssertTrue(app.navigationBars["Fixture Album"].waitForExistence(timeout: 10))
+        capture(app, named: "Album detail")
+        app.buttons["Artists"].firstMatch.tap()
+        let artist = app.buttons["group-Fixture Artist"]
+        XCTAssertTrue(artist.waitForExistence(timeout: 10))
+        capture(app, named: "Artists")
+        artist.tap()
+        XCTAssertTrue(app.navigationBars["Fixture Artist"].waitForExistence(timeout: 10))
+        capture(app, named: "Artist detail")
+        app.buttons["Settings"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
+        capture(app, named: "Settings")
+        app.buttons["Songs"].firstMatch.tap()
+        let search = app.searchFields.firstMatch
+        if !search.isHittable {
+            let button = app.buttons["Search"].firstMatch
+            if button.exists { button.tap() }
+        }
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        search.tap()
+        search.typeText("Afterglow")
+        let match = app.buttons["Afterglow, Fixture Artist"]
+        XCTAssertTrue(match.waitForExistence(timeout: 15))
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'track-'")).count, 1)
+        capture(app, named: "Search results")
+    }
+
+    @MainActor
     func testNativePlayerPresentation() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--aural-ui-fixture"]
@@ -59,6 +95,7 @@ final class LaunchTests: XCTestCase {
         app.buttons["Favorites"].firstMatch.tap()
         XCTAssertTrue(app.navigationBars["Favorites"].waitForExistence(timeout: 10))
         XCTAssertTrue(open.waitForExistence(timeout: 10))
+        capture(app, named: "Favorites")
         songs.tap()
         XCTAssertTrue(row.waitForExistence(timeout: 10))
         XCTAssertTrue(row.isSelected)
@@ -108,6 +145,11 @@ final class LaunchTests: XCTestCase {
         close.tap()
         XCTAssertTrue(open.waitForExistence(timeout: 15))
         XCTAssertTrue(open.isHittable)
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        XCTAssertTrue(open.waitForExistence(timeout: 15))
+        XCTAssertTrue(open.isHittable)
+        capture(app, named: "Landscape library")
     }
 
     @MainActor

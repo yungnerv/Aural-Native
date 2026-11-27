@@ -18,7 +18,40 @@ concurrency:
   group: aural-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  simulator:
+    name: Simulator (${{ matrix.family }})
+    runs-on: macos-26-intel
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [iPhone, iPad]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Run simulator tests
+        run: bash Scripts/simulator.sh "${{ matrix.family }}"
+      - name: Upload simulator results
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: Aural-simulator-results-${{ matrix.family }}-${{ github.run_number }}-${{ github.run_attempt }}
+          path: AuralTests-*.xcresult
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Upload simulator screenshots
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: Aural-screenshots-${{ matrix.family }}-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            screenshots/**/*.png
+            screenshots/**/manifest.json
+          if-no-files-found: error
+          retention-days: 14
   build:
+    needs: simulator
     runs-on: macos-26-intel
     timeout-minutes: 50
     outputs:
@@ -47,29 +80,6 @@ jobs:
       - name: Compile and package unsigned IPA
         id: device_build
         run: bash Scripts/build.sh
-      - name: Simulator integration and launch tests
-        run: bash Scripts/simulator.sh iPhone
-      - name: iPad simulator launch test
-        if: ${{ !cancelled() && steps.device_build.outcome == 'success' }}
-        run: bash Scripts/simulator.sh iPad
-      - name: Upload simulator results
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: Aural-simulator-results-${{ github.run_number }}
-          path: AuralTests-*.xcresult
-          include-hidden-files: true
-          if-no-files-found: ignore
-          retention-days: 14
-      - name: Upload simulator screenshots
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: Aural-screenshots-${{ github.run_number }}
-          path: |
-            screenshots/**/*.png
-            screenshots/**/manifest.json
-          if-no-files-found: error
-          retention-days: 14
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
