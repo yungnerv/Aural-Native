@@ -5,8 +5,9 @@ import ImageIO
 actor ArtworkCache {
     static let shared = ArtworkCache()
     private let cache = NSCache<NSString, UIImage>()
+    private static let byteLimit = 24 * 1024 * 1024
     init() {
-        cache.totalCostLimit = 24 * 1024 * 1024
+        cache.totalCostLimit = Self.byteLimit
         cache.countLimit = 128
     }
 
@@ -24,7 +25,10 @@ actor ArtworkCache {
               ] as CFDictionary) else { return nil }
         guard !Task.isCancelled else { return nil }
         let result = UIImage(cgImage: image)
-        cache.setObject(result, forKey: key, cost: image.bytesPerRow * image.height)
+        let (cost, overflow) = image.bytesPerRow.multipliedReportingOverflow(by: image.height)
+        if !overflow, cost <= Self.byteLimit {
+            cache.setObject(result, forKey: key, cost: cost)
+        }
         return result
     }
 }
