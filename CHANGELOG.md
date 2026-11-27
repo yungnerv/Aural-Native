@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.7 — Correct retirement fixture isolation
+- Fix a regression fixture that accidentally reintroduced the same track UUID and both retired filenames, making its four-warning assertion incorrect. Use an independent replacement track and verify exact diagnostics, not only their count.
+- Add a separate regression test confirming that reintroduced current audio and artwork are protected from retirement. Production recovery, cleanup guards, and interface are unchanged.
+
 ## 0.3.6 — Verified recovery and conservative media reclamation
 - Recovery inspection checks recorded audio and artwork SHA-256 digests, reports missing/damaged/unverified media separately, and blocks known-damaged restores. Restore verifies the exact candidate before replacement.
 - New imports record the derived artwork checksum. Optional field remains compatible with existing schema 1/2 indexes. Reject malformed digests and artwork digests without artwork.

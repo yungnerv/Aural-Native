@@ -311,12 +311,46 @@ func runTests() async throws {
     try await guarded.commit([arbitrary, modified, legacyArt])
     try await guarded.commit([])
     try Data("replacement".utf8).write(to: modifiedURL)
-    let retainedDiagnostics = try await guarded.commit([hashed])
-    check(retainedDiagnostics.count == 4, "Unverified and replaced media reported")
+    // Rotate with a truly unrelated track. Reusing hashed here would reuse
+    // legacyArt's identity and both filenames, correctly protecting them
+    // from retirement and invalidating the four-diagnostic expectation.
+    let unrelatedNext = Track(file: "\(UUID().uuidString).wav", title: "Next",
+                              artist: "Artist", album: "Album", duration: 1)
+    let retainedDiagnostics = try await guarded.commit([unrelatedNext])
+    let expectedDiagnostics: Set<String> = [
+        "Retained unverified media: \(arbitrary.file)",
+        "Retained modified media: \(modified.file)",
+        "Retained unverified media: \(legacyArt.file)",
+        "Retained unverified media: \(legacyArt.artwork!)"
+    ]
+    check(retainedDiagnostics.count == expectedDiagnostics.count &&
+          Set(retainedDiagnostics) == expectedDiagnostics,
+          "Unverified and replaced media reported: \(retainedDiagnostics)")
     check(try Data(contentsOf: arbitraryURL) == Data("unrelated".utf8), "Non-managed name preserved even with digest")
     check(try Data(contentsOf: modifiedURL) == Data("replacement".utf8), "Changed managed bytes preserved")
     check(FileManager.default.fileExists(atPath: legacyAudioURL.path), "Legacy audio without checksum preserved")
     check(FileManager.default.fileExists(atPath: legacyArtURL.path), "Legacy artwork without checksum preserved")
+
+    // Explicitly exercise the complementary case: retired media reused by a
+    // new current snapshot is protected, even if its old record was unhashed.
+    let reusedRoot = root.appendingPathComponent("reused-retention", isDirectory: true)
+    let reused = LibraryRepository(root: reusedRoot)
+    _ = try await reused.load()
+    let reusedAudio = reusedRoot.appendingPathComponent(legacyArt.file)
+    let reusedArt = reusedRoot.appendingPathComponent(legacyArt.artwork!)
+    try Data("reused audio".utf8).write(to: reusedAudio)
+    try Data("reused artwork".utf8).write(to: reusedArt)
+    try await reused.commit([legacyArt])
+    try await reused.commit([])
+    var reusedTrack = legacyArt
+    reusedTrack.contentHash = try FileDigest.sha256(reusedAudio)
+    reusedTrack.artworkHash = try FileDigest.sha256(reusedArt)
+    let reusedDiagnostics = try await reused.commit([reusedTrack])
+    check(reusedDiagnostics.isEmpty, "Current references must not enter retired cleanup")
+    check(try Data(contentsOf: reusedAudio) == Data("reused audio".utf8),
+          "Reintroduced audio preserved")
+    check(try Data(contentsOf: reusedArt) == Data("reused artwork".utf8),
+          "Reintroduced artwork preserved")
 
     // Stress the real serializer and derived index on a 10,000-track fixture.
     let large = (0..<10_000).map { i in
