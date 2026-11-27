@@ -206,6 +206,8 @@ import Foundation
             let position = mediaReset ? lastKnownPosition : 0
             try prepare(url)
             if position > 0 {
+                // Preserve the recovery target if media services reset again before the seek completes.
+                lastKnownPosition = position
                 wantsPlayback = true
                 if seek(position, resumeAfterSeek: true) {
                     reportState()
