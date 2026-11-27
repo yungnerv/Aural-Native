@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import OSLog
 
 /// Main-actor coordinator. The repository owns persistence, the importer owns file
 /// inspection, and the playback engine and system bridge own platform integration.
@@ -21,6 +22,7 @@ import Combine
     @Published var repeatOne = false
 
     let clock = PlaybackClock()
+    private let playbackLog = Logger(subsystem: "local.aural.player", category: "Playback")
     private let repository: LibraryRepository
     private let importer = AudioImporter()
     private var importTask: Task<Void, Never>?
@@ -265,7 +267,17 @@ import Combine
     }
 
     func play(_ track: Track, in list: [Track]) {
-        guard libraryReady, let selected = index.byID[track.id] else { return }
+        playbackLog.debug("Track selection requested")
+        guard libraryReady else {
+            playbackLog.error("Selection rejected: library unavailable")
+            message = "Reopen the library before playing music."
+            return
+        }
+        guard let selected = index.byID[track.id] else {
+            playbackLog.error("Selection rejected: track no longer indexed")
+            message = "This track is no longer in the library."
+            return
+        }
         load(selected, replacementQueue: list.map(\.id).filter { index.byID[$0] != nil })
     }
 
@@ -281,8 +293,14 @@ import Combine
             duration = track.duration
             engine.start()
             updateSystem()
+            playbackLog.debug("Track selected and playback requested")
             return true
-        } catch { message = error.localizedDescription; return false }
+        } catch {
+            let failure = error as NSError
+            playbackLog.error("Playback preparation failed: domain=\(failure.domain, privacy: .public) code=\(failure.code, privacy: .public)")
+            message = error.localizedDescription
+            return false
+        }
     }
 
     func resume() {

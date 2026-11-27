@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.4 — Full-row playback interaction and diagnostics
+- Make the entire track button label hit-testable, including trailing empty space on iPad. Preserve selection semantics, swipe/context actions and native glass hosts.
+- Require trailing-row taps to select the track in both UI suites; capture accessibility hierarchy and alerts on failure. Log playback preparation outcomes without personal metadata and collect diagnostics on failed simulator runs without losing the original test exit code.
+
 ## 0.3.3 — iPad mini-player presentation
 - Use a safe-area-aware native Liquid Glass mini-player on iPad independently of the top tab bar; retain the native adaptive accessory on iPhone.
 - Strengthen cross-device UI regression tests: verify current-track selection, hit testing, accessible metadata and transport, and shared pause state. Do not remove or relax the failing test.

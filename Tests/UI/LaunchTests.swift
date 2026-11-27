@@ -23,12 +23,22 @@ final class LaunchTests: XCTestCase {
 
         let row = app.buttons["track-1A2B3C4D-0001-4000-8000-000000000001"]
         XCTAssertTrue(row.waitForExistence(timeout: 20))
-        row.tap()
-        XCTAssertTrue(row.isSelected, "The selected track must become the current track")
+        XCTAssertTrue(row.isHittable, "Track row must be tappable")
+        // Exercise whitespace, not only the title/artwork. On iPad this is
+        // precisely where a plain button with an unshaped Spacer can miss.
+        row.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5)).tap()
+        let selection = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "selected == true"), object: row
+        )
+        guard XCTWaiter.wait(for: [selection], timeout: 15) == .completed else {
+            captureFailure(app, named: "Track Selection Failed")
+            XCTFail("A tap in the trailing portion of the track row must select it")
+            return
+        }
 
         let open = app.buttons["open-player"]
         guard open.waitForExistence(timeout: 20) else {
-            capture(app, named: "Missing Mini Player")
+            captureFailure(app, named: "Missing Mini Player")
             XCTFail("The native mini-player must be accessible on both iPhone and iPad")
             return
         }
@@ -57,6 +67,19 @@ final class LaunchTests: XCTestCase {
         XCTAssertTrue(open.waitForExistence(timeout: 15))
         XCTAssertTrue(open.isHittable)
         XCTAssertEqual(miniToggle.label, "Play", "Paused state must be shared between both presentations")
+    }
+
+    @MainActor
+    private func captureFailure(_ app: XCUIApplication, named name: String) {
+        capture(app, named: name)
+        let diagnostic = XCTAttachment(string: app.debugDescription)
+        diagnostic.name = "\(name) — accessibility hierarchy"
+        diagnostic.lifetime = .keepAlways
+        add(diagnostic)
+        print("UI failure hierarchy: \(app.debugDescription)")
+        if app.alerts.firstMatch.exists {
+            print("Visible application alert: \(app.alerts.firstMatch.debugDescription)")
+        }
     }
 
     @MainActor

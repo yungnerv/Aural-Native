@@ -12,9 +12,18 @@ set --
 if [[ "$FAMILY" == iPad ]]; then
   set -- -only-testing:AuralUITests
 fi
+# Preserve the actual test exit code, even while collecting failure evidence.
+TEST_STATUS=0
 xcodebuild -project Aural.xcodeproj -scheme Aural \
   -destination "platform=iOS Simulator,id=$SIMULATOR_ID,arch=$(uname -m)" \
   -derivedDataPath "$PWD/DerivedData-simulator" \
   -parallel-testing-enabled NO -resultBundlePath "$PWD/AuralTests-$FAMILY.xcresult" \
-  MARKETING_VERSION="$APP_VERSION" CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER:-1}" "$@" test
+  MARKETING_VERSION="$APP_VERSION" CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER:-1}" "$@" test || TEST_STATUS=$?
+if [[ "$TEST_STATUS" -ne 0 ]]; then
+  echo "Aural playback diagnostics ($FAMILY):"
+  xcrun simctl spawn "$SIMULATOR_ID" log show --last 15m --style compact \
+    --info --debug --predicate 'subsystem == "local.aural.player" AND category == "Playback"' ||
+    echo "Playback log collection failed; original test failure retained." >&2
+fi
 xcrun simctl shutdown "$SIMULATOR_ID"
+exit "$TEST_STATUS"
