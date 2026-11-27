@@ -38,6 +38,42 @@ final class NativeIntegrationTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: library.path).count, 1)
     }
 
+    @MainActor
+    func testTaggedM4AImportPreservesEmbeddedMetadataAndBytes() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let wav = root.appendingPathComponent("fixture.wav")
+        try fixture(at: wav)
+        let source = root.appendingPathComponent("Tagged fixture.m4a")
+        let session = try XCTUnwrap(AVAssetExportSession(
+            asset: AVURLAsset(url: wav), presetName: AVAssetExportPresetAppleM4A))
+        func tag(_ identifier: AVMetadataIdentifier, _ text: String) -> AVMetadataItem {
+            let item = AVMutableMetadataItem()
+            item.identifier = identifier
+            item.value = text as NSString
+            return item
+        }
+        session.metadata = [
+            tag(.iTunesMetadataAlbumArtist, "Fixture Album Artist"),
+            tag(.iTunesMetadataComposer, "Fixture Composer"),
+            tag(.iTunesMetadataUserGenre, "Fixture Genre"),
+        ]
+        // Transcoding is solely for generating this synthetic test fixture.
+        // The importer must preserve the resulting file byte for byte.
+        try await session.export(to: source, as: .m4a)
+        let library = root.appendingPathComponent("library", isDirectory: true)
+        try FileManager.default.createDirectory(at: library, withIntermediateDirectories: true)
+        let imported = try await AudioImporter().readFile(source, into: library, knownHashes: [])
+        let track = try XCTUnwrap(imported)
+        let metadata = try XCTUnwrap(track.metadata)
+        XCTAssertEqual(metadata.albumArtist, "Fixture Album Artist")
+        XCTAssertEqual(metadata.composer, "Fixture Composer")
+        XCTAssertEqual(metadata.genre, "Fixture Genre")
+        XCTAssertEqual(metadata.originalFilename, "Tagged fixture.m4a")
+        XCTAssertEqual(try Data(contentsOf: source), try Data(contentsOf: library.appendingPathComponent(track.file)))
+    }
+
     func testInvalidAudioLeavesNoImportedFiles() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

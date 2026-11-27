@@ -4,7 +4,9 @@ import Foundation
 /// AVFoundation-only extraction. Platform-specific tag mappings do not leak into
 /// storage or library grouping. The importer never rewrites the source tags.
 enum EmbeddedMetadata {
-    static func read(_ items: [AVMetadataItem], filename: String) async throws -> TrackMetadata {
+    static func read(
+        _ items: [AVMetadataItem], filename: String, isolation: isolated (any Actor)? = #isolation
+    ) async throws -> TrackMetadata {
         var result = TrackMetadata()
         result.albumArtist = await text(items, [.iTunesMetadataAlbumArtist, .id3MetadataBand])
         result.composer = await text(items, [.iTunesMetadataComposer, .id3MetadataComposer])
@@ -18,7 +20,10 @@ enum EmbeddedMetadata {
         return result
     }
 
-    private static func text(_ items: [AVMetadataItem], _ identifiers: [AVMetadataIdentifier]) async -> String? {
+    private static func text(
+        _ items: [AVMetadataItem], _ identifiers: [AVMetadataIdentifier],
+        isolation: isolated (any Actor)? = #isolation
+    ) async -> String? {
         for identifier in identifiers {
             for item in items where item.identifier == identifier {
                 if let value = TrackMetadata.cleanText(try? await item.load(.stringValue)) {
@@ -30,7 +35,8 @@ enum EmbeddedMetadata {
     }
 
     private static func position(
-        _ items: [AVMetadataItem], textID: AVMetadataIdentifier, binaryID: AVMetadataIdentifier
+        _ items: [AVMetadataItem], textID: AVMetadataIdentifier, binaryID: AVMetadataIdentifier,
+        isolation: isolated (any Actor)? = #isolation
     ) async -> TrackMetadata.Position? {
         if let value = await text(items, [textID]),
            let position = TrackMetadata.Position.parse(value) {

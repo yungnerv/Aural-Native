@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.3.1 — Metadata and extensibility foundation
+- Add a native tagged M4A import fixture and validate the actual device executable architecture and Mach-O platform before packaging.
 - Add optional typed embedded album artist, composer, genre, release/recording dates, disc and track positions, and original filename.
 - Read supported native ID3/iTunes tags, reject malformed positions, group albums by album artist and sort tracks by disc/track with stable fallback.
 - Write schema 2 on mutation, read legacy and schema 1 without rewriting, preserve backup bytes, and refuse unknown newer backup schemas.
