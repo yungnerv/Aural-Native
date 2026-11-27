@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 import UniformTypeIdentifiers
 
 struct RootView: View {
@@ -35,29 +34,19 @@ struct RootView: View {
     private var filtered: [Track] {
         search.isEmpty ? store.tracks : matchingResult?.tracks ?? []
     }
-    // iPad's floating top tab bar does not reliably host the bottom accessory.
-    // Choose one host per idiom, including narrow iPad multitasking windows.
-    private var usesIndependentMiniPlayer: Bool { UIDevice.current.userInterfaceIdiom == .pad }
-
     var body: some View {
         TabView(selection: $tab) {
             Tab("Library", systemImage: "books.vertical", value: 0) {
-                tabContent { library }
+                tabContent(0) { library }
             }
             Tab("Favorites", systemImage: "heart", value: 1) {
-                tabContent { favorites.navigationTitle("Favorites") }
+                tabContent(1) { favorites.navigationTitle("Favorites") }
             }
             Tab("Settings", systemImage: "gearshape", value: 2) {
-                tabContent { settings }
+                tabContent(2) { settings }
             }
         }
         .tint(.mint)
-        .tabBarMinimizeBehavior(.onScrollDown)
-        .tabViewBottomAccessory(isEnabled: !usesIndependentMiniPlayer && store.current != nil) {
-            if !usesIndependentMiniPlayer, let track = store.current {
-                MiniPlayerView(track: track) { showPlayer = true }
-            }
-        }
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.audio], allowsMultipleSelection: true) { result in
             switch result { case .success(let urls): store.beginImport(urls); case .failure(let error): store.message = error.localizedDescription }
         }
@@ -72,12 +61,15 @@ struct RootView: View {
         } message: { Text("The current damaged index will be preserved. The previous index may omit recent library changes. No audio files will be deleted.") }
         .alert("Aural", isPresented: Binding(get: { store.message != nil }, set: { if !$0 { store.message = nil } })) { Button("OK") { store.message = nil } } message: { Text(store.message ?? "") }
     }
-    /// Host the iPad player inside each tab's safe area, not above the tab
-    /// controller. Content can scroll clear of the bar in every window size.
-    private func tabContent<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    /// One stable mini-player host in the selected navigation tab, on both
+    /// device families. The navigation safe area accounts for native tab bars;
+    /// the content does not depend on an accessory controller's activation point.
+    private func tabContent<Content: View>(
+        _ selection: Int, @ViewBuilder content: () -> Content
+    ) -> some View {
         NavigationStack { content() }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if usesIndependentMiniPlayer, let track = store.current {
+                if tab == selection, let track = store.current {
                     MiniPlayerView(track: track) { showPlayer = true }
                         .padding(.vertical, 6)
                         .frame(maxWidth: 600)

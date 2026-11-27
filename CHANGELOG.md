@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.5 — Stable native glass mini-player host
+- Use one selected-tab safe-area mini-player host on iPhone and iPad, retaining native glass and system navigation without the tab accessory's unreliable touch activation. Automatic tab minimization and inline accessory mode are removed for now.
+- Verify a single accessible player, 44-point minimum hit targets, actual open/close and mini-player pause/resume, shared state and reopening. Run iPad validation even if iPhone tests fail; IPA publication still requires both suites to succeed.
+
 ## 0.3.4 — Full-row playback interaction and diagnostics
 - Make the entire track button label hit-testable, including trailing empty space on iPad. Preserve selection semantics, swipe/context actions and native glass hosts.
 - Require trailing-row taps to select the track in both UI suites; capture accessibility hierarchy and alerts on failure. Log playback preparation outcomes without personal metadata and collect diagnostics on failed simulator runs without losing the original test exit code.

@@ -1,31 +1,27 @@
 import SwiftUI
 
-/// Shared interactive content for both hosts. On iPhone the system supplies
-/// the surface; on iPad the safe-area host applies a single native glass effect.
-/// Never apply an additional material here.
+/// Interactive content only. RootView supplies the single native Liquid Glass
+/// surface; no nested material or separate playback state.
 struct MiniPlayerView: View {
     let track: Track
     let openPlayer: () -> Void
 
     @EnvironmentObject private var store: MusicStore
-    @Environment(\.tabViewBottomAccessoryPlacement) private var placement
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    private var compact: Bool { placement == .inline }
-
     var body: some View {
-        HStack(spacing: compact ? 4 : 10) {
+        HStack(spacing: 8) {
             Button(action: openPlayer) {
                 HStack(spacing: 8) {
                     Cover(url: store.artworkURL(track))
-                        .frame(width: compact ? 30 : 40, height: compact ? 30 : 40)
+                        .frame(width: 40, height: 40)
                         .accessibilityHidden(true)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(track.title)
                             .font(.subheadline.weight(.semibold))
                             .lineLimit(1)
-                        if !compact && !typeSize.isAccessibilitySize {
+                        if !typeSize.isAccessibilitySize {
                             Text(track.artist)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -34,7 +30,7 @@ struct MiniPlayerView: View {
                     }
                     Spacer(minLength: 0)
                 }
-                .frame(minHeight: 44)
+                .frame(minWidth: 44, maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -52,7 +48,7 @@ struct MiniPlayerView: View {
             .accessibilityIdentifier("mini-toggle")
             .disabled(!store.canToggle)
 
-            if !compact && !typeSize.isAccessibilitySize {
+            if !typeSize.isAccessibilitySize {
                 Button { store.advance(1) } label: {
                     Image(systemName: "forward.end.fill")
                         .frame(width: 44, height: 44)
@@ -60,10 +56,11 @@ struct MiniPlayerView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Next track")
+                .accessibilityIdentifier("mini-next")
                 .disabled(!store.canAdvance)
             }
         }
         .foregroundStyle(.primary)
-        .padding(.horizontal, compact ? 4 : 12)
+        .padding(.horizontal, 12)
     }
 }

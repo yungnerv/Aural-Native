@@ -42,10 +42,12 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           bash Scripts/test.sh
       - name: Compile and package unsigned IPA
+        id: device_build
         run: bash Scripts/build.sh
       - name: Simulator integration and launch tests
         run: bash Scripts/simulator.sh iPhone
       - name: iPad simulator launch test
+        if: ${{ !cancelled() && steps.device_build.outcome == 'success' }}
         run: bash Scripts/simulator.sh iPad
       - name: Upload simulator results
         if: always()

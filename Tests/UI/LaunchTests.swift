@@ -42,12 +42,16 @@ final class LaunchTests: XCTestCase {
             XCTFail("The native mini-player must be accessible on both iPhone and iPad")
             return
         }
+        capture(app, named: "Native Library and Mini Player")
+        XCTAssertEqual(app.buttons.matching(identifier: "open-player").count, 1,
+                       "Only one active mini-player must be exposed")
+        XCTAssertGreaterThanOrEqual(open.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(open.frame.height, 44)
         XCTAssertTrue(open.isHittable, "The mini-player must be onscreen and tappable")
         XCTAssertEqual(open.value as? String, "Aural Test Track, Fixture Artist")
         let miniToggle = app.buttons["mini-toggle"]
         XCTAssertTrue(miniToggle.exists && miniToggle.isHittable, "Mini-player transport must be available")
         XCTAssertEqual(miniToggle.label, "Pause")
-        capture(app, named: "Native Library and Mini Player")
         open.tap()
 
         let title = app.staticTexts["player-track-title"]
@@ -67,6 +71,18 @@ final class LaunchTests: XCTestCase {
         XCTAssertTrue(open.waitForExistence(timeout: 15))
         XCTAssertTrue(open.isHittable)
         XCTAssertEqual(miniToggle.label, "Play", "Paused state must be shared between both presentations")
+        XCTAssertTrue(miniToggle.isHittable)
+        miniToggle.tap()
+        XCTAssertEqual(miniToggle.label, "Pause", "Mini-player must directly resume playback")
+        miniToggle.tap()
+        XCTAssertEqual(miniToggle.label, "Play", "Mini-player must directly pause playback")
+        XCTAssertTrue(open.isHittable, "Transport must not obstruct the player button")
+        open.tap()
+        XCTAssertTrue(title.waitForExistence(timeout: 15))
+        XCTAssertEqual(toggle.label, "Play", "Reopened player must preserve the paused state")
+        close.tap()
+        XCTAssertTrue(open.waitForExistence(timeout: 15))
+        XCTAssertTrue(open.isHittable)
     }
 
     @MainActor
