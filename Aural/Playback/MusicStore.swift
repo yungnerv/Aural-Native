@@ -336,7 +336,7 @@ import OSLog
 
     func favorite(_ track: Track) {
         guard libraryReady, !mutationBusy else { message = "The library is busy or unavailable."; return }
-        guard let i = tracks.firstIndex(where: { $0.id == track.id }) else { return }
+        guard let i = index.positionByID[track.id] else { return }
         mutationBusy = true
         var next = tracks
         next[i].favorite.toggle()
