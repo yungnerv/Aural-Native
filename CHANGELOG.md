@@ -1,7 +1,7 @@
 # Changelog
 
 ## 0.3.11 — Native music navigation
-- Open Albums, Artists, Songs, Favorites and Settings directly from the system tab bar. Each music browser keeps its own navigation and search state.
+- Open Albums, Artists, Songs, Favorites and Settings directly from the system tab bar. Each music browser keeps its own navigation and search state. Align the floating mini-player with the bottom tabs in portrait on iPhone 15 Pro Max.
 
 ## 0.3.10 — Large-library saves
 - Validate track IDs and normalized media names in one pass. Reuse validated filenames for backup protection and skip ownership checks for protected media during cleanup.

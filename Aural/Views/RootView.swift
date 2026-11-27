@@ -57,7 +57,7 @@ struct RootView: View {
                         .padding(.vertical, 6)
                         .frame(maxWidth: 600)
                         .glassEffect(.regular, in: .capsule)
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 21)
                         .padding(.bottom, 8)
                         .frame(maxWidth: .infinity)
                 }
