@@ -1,6 +1,8 @@
 # Changelog
 
 ## 0.3.0 — Foundation hardening
+- Search immutable snapshots off the main actor with cancellation and revision checks; use typed categories and precomputed favorites.
+- Reduce full-index updates with bounded adaptive import batches; remove duplicate track-array state and publish navigation availability only on change.
 - Use playback revision tickets for remote commands and scrubbing, reject seeks without an item, and reprepare failed items on explicit resume.
 - Release the audio session on pause/clear, gate queue navigation on library availability, and publish the replacement queue before playback starts.
 - Correct subsecond slider ranges, non-drag accessibility adjustments, search and Favorites empty states, and playback button availability.

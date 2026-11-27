@@ -4,7 +4,8 @@ import Combine
 /// Main-actor coordinator. The repository owns persistence, the importer owns file
 /// inspection, and the playback engine and system bridge own platform integration.
 @MainActor final class MusicStore: ObservableObject {
-    @Published private(set) var tracks: [Track] = []
+    @Published private(set) var index = LibraryIndex([])
+    var tracks: [Track] { index.tracks }
     @Published private(set) var libraryReady = false
     @Published private(set) var libraryLoading = true
     @Published private(set) var recoveryReport: LibraryRepository.RecoveryReport?
@@ -18,7 +19,6 @@ import Combine
     @Published var repeatOne = false
 
     let clock = PlaybackClock()
-    private(set) var index = LibraryIndex([])
     private let repository: LibraryRepository
     private let importer = AudioImporter()
     private let engine = PlaybackEngine()
@@ -27,8 +27,8 @@ import Combine
     private var queue = PlaybackQueue()
     private var actualPlaying = false
     var current: Track? { currentID.flatMap { index.byID[$0] } }
-    var canAdvance: Bool { libraryReady && currentID.flatMap { queue.adjacent(to: $0, direction: 1) } != nil }
-    var canGoBack: Bool { libraryReady && (elapsed > 3 || currentID.flatMap { queue.adjacent(to: $0, direction: -1) } != nil) }
+    @Published private(set) var canAdvance = false
+    @Published private(set) var canGoBack = false
     var canToggle: Bool { currentID != nil && (playing || libraryReady) }
 
     private var elapsed: Double {
@@ -143,7 +143,6 @@ import Combine
 
     private func apply(_ next: [Track]) async {
         index = await repository.makeIndex(next)
-        tracks = next
         queue.retain(Set(index.byID.keys))
         if let currentID, index.byID[currentID] == nil {
             self.currentID = nil
@@ -205,7 +204,9 @@ import Combine
                     } else { duplicates += 1 }
                 } catch is CancellationError { throw CancellationError() }
                 catch { errors.append("\(url.lastPathComponent): \(error.localizedDescription)") }
-                if pending.count >= 16 {
+                // Bound uncommitted imports while reducing whole-index writes.
+                let batchSize = min(128, max(16, next.count / 64))
+                if pending.count >= batchSize {
                     try await commit(next)
                     pending.removeAll(keepingCapacity: true)
                 }
@@ -310,6 +311,11 @@ import Combine
     }
 
     private func updateSystem() {
+        let nextAvailable = libraryReady && currentID.flatMap { queue.adjacent(to: $0, direction: 1) } != nil
+        let previousAvailable = libraryReady && currentID != nil &&
+            (elapsed > 3 || currentID.flatMap { queue.adjacent(to: $0, direction: -1) } != nil)
+        if canAdvance != nextAvailable { canAdvance = nextAvailable }
+        if canGoBack != previousAvailable { canGoBack = previousAvailable }
         guard let current else { return }
         var available: Set<RemoteCommandGate.Command> = []
         if playing { available.insert(.pause) }

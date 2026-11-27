@@ -4,12 +4,36 @@ import UniformTypeIdentifiers
 struct RootView: View {
     @EnvironmentObject var store: MusicStore
     @State private var tab = 0
-    @State private var category = "Albums"
+    @State private var category = LibraryCategory.albums
     @State private var search = ""
     @State private var showFiles = false
     @State private var showPlayer = false
     @State private var confirmRecovery = false
-    var filtered: [Track] { store.index.filter(search) }
+    private struct SearchKey: Equatable, Sendable {
+        let revision: UUID
+        let category: LibraryCategory
+        let query: String
+    }
+
+    private struct SearchSnapshot {
+        let key: SearchKey
+        let result: LibraryIndex.SearchResult
+    }
+
+    @State private var searchSnapshot: SearchSnapshot?
+
+    private var searchKey: SearchKey {
+        SearchKey(revision: store.index.revision, category: category, query: search)
+    }
+
+    private var matchingResult: LibraryIndex.SearchResult? {
+        guard searchSnapshot?.key == searchKey else { return nil }
+        return searchSnapshot?.result
+    }
+
+    private var filtered: [Track] {
+        search.isEmpty ? store.tracks : matchingResult?.tracks ?? []
+    }
     var body: some View {
         TabView(selection: $tab) {
             NavigationStack { library }.tabItem { Label("Library", systemImage: "books.vertical") }.tag(0)
@@ -30,7 +54,7 @@ struct RootView: View {
     }
     var library: some View {
         VStack(spacing: 0) {
-            Picker("Library view", selection: $category) { ForEach(["Albums","Artists","Songs"], id: \.self) { Text($0) } }.pickerStyle(.segmented).padding(.horizontal).padding(.vertical, 8)
+            Picker("Library view", selection: $category) { ForEach(LibraryCategory.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented).padding(.horizontal).padding(.vertical, 8)
             if store.importing { ProgressView("Importing music…").padding(6) }
             if store.libraryLoading { ProgressView("Opening library…").frame(maxWidth: .infinity, maxHeight: .infinity) }
             else if !store.libraryReady {
@@ -50,10 +74,27 @@ struct RootView: View {
                 }
             }
             else if store.tracks.isEmpty { ContentUnavailableView("No music", systemImage: "music.note.list", description: Text("Add audio files from Files to get started.")) }
+            else if !search.isEmpty && matchingResult == nil { ProgressView("Searching…").frame(maxWidth: .infinity, maxHeight: .infinity) }
             else if filtered.isEmpty { ContentUnavailableView.search(text: search) }
-            else if category == "Songs" { trackList(filtered) }
+            else if category == .songs { trackList(filtered) }
             else { groups }
-        }.navigationTitle("Library").searchable(text: $search, prompt: "Search your music").toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showFiles = true } label: { Label("Add music", systemImage: "plus") }.disabled(!store.libraryReady || store.mutationBusy) } }
+        }
+        .task(id: searchKey) {
+            let key = searchKey
+            guard !key.query.isEmpty else { searchSnapshot = nil; return }
+            let snapshot = store.index
+            let worker = Task.detached(priority: .userInitiated) {
+                try snapshot.search(key.query, category: key.category)
+            }
+            let result = await withTaskCancellationHandler {
+                try? await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+            guard !Task.isCancelled, key == searchKey, let result else { return }
+            searchSnapshot = SearchSnapshot(key: key, result: result)
+        }
+        .navigationTitle("Library").searchable(text: $search, prompt: "Search your music").toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showFiles = true } label: { Label("Add music", systemImage: "plus") }.disabled(!store.libraryReady || store.mutationBusy) } }
     }
     private var favorites: some View {
         Group {
@@ -74,7 +115,7 @@ struct RootView: View {
     }
 
     var groups: some View {
-        let groups = store.index.groups(category: category, query: search)
+        let groups = search.isEmpty ? store.index.groups(category: category, query: "") : matchingResult?.groups ?? []
         return ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 148), spacing: 14)], spacing: 18) {
                 ForEach(groups) { group in

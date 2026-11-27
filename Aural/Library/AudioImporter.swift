@@ -55,7 +55,7 @@ actor AudioImporter {
             NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinationError) { readable in
                 do {
                     try requireRegularFile(readable)
-                    try fm.copyItem(at: readable, to: stagedAudio)
+                    try FileManager.default.copyItem(at: readable, to: stagedAudio)
                 } catch {
                     copyError = error
                 }

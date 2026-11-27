@@ -27,8 +27,12 @@ func runTests() async throws {
     let index = LibraryIndex([first, second, third])
     check(index.byID[first.id] == first && index.filter("ARTIST").count == 3, "Index and search")
     check(index.filter("", favoritesOnly: true) == [first], "Favorites")
-    check(index.groups(category: "Albums", query: "").count == 3, "Distinct untagged singles")
-    let artistGroup = index.groups(category: "Artists", query: "").first!
+    let searchResult = try index.search("ARTIST", category: .albums)
+    check(searchResult.tracks == [first, second, third] && searchResult.groups.count == 3, "Value snapshot search")
+    let noResults = try index.search("no matches", category: .songs)
+    check(noResults.tracks.isEmpty && noResults.groups.isEmpty, "Empty search result")
+    check(index.groups(category: .albums, query: "").count == 3, "Distinct untagged singles")
+    let artistGroup = index.groups(category: .artists, query: "").first!
     let updatedIndex = LibraryIndex([first, third])
     check(updatedIndex.group(for: artistGroup.id)?.tracks == [first, third], "Navigation group resolves live contents")
     let remote = RemoteCommandGate()
@@ -227,7 +231,7 @@ func runTests() async throws {
     let indexed = await stress.makeIndex(reloaded)
     check(reloaded == large && indexed.byID.count == 10_000, "10k track round trip")
     check(indexed.filter("", favoritesOnly: true).count == 1_000, "10k track favorites")
-    check(indexed.groups(category: "Artists", query: "").count == 100, "10k artist groups")
+    check(indexed.groups(category: .artists, query: "").count == 100, "10k artist groups")
     print("10k metadata fixture commit/reload/index: \(Date().timeIntervalSince(started)) seconds (host only)")
     print("PASS: storage, migration, independent stale deletion, explicit recovery, path guards, 10k fixture, queue, index, digest")
 }
