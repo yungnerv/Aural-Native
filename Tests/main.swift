@@ -13,6 +13,33 @@ func runTests() async throws {
     check(decoded[0].format == "FLAC" && decoded[1].format == "MP3", "Format labels")
     check(decoded[1].artwork == nil && decoded[1].contentHash == nil, "Optional fields")
 
+    check(TrackMetadata.Position.parse(" 7 / 12 ")?.number == 7, "ID3 track position")
+    check(TrackMetadata.Position.parse("7/12")?.total == 12, "ID3 track total")
+    check(TrackMetadata.Position.parse("7/0")?.total == nil, "Unknown total stays missing")
+    check(TrackMetadata.Position.parse("0") == nil && TrackMetadata.Position.parse("9/2") == nil &&
+          TrackMetadata.Position.parse("4/") == nil, "Malformed positions rejected")
+    check(TrackMetadata.Position.parseITunes(Data([0, 0, 0, 7, 0, 12, 0, 0])) ==
+          TrackMetadata.Position(number: 7, total: 12), "iTunes binary position")
+    check(TrackMetadata.Position.parseITunes(Data([0, 0, 0, 2, 0, 0])) ==
+          TrackMetadata.Position(number: 2), "iTunes unknown total")
+    check(TrackMetadata.Position.parseITunes(Data([1, 0, 0, 7, 0, 12])) == nil, "Invalid binary position")
+
+    var collaboration = first
+    collaboration.metadata = TrackMetadata(albumArtist: "Various Artists", genre: "Hip Hop",
+                                          track: .init(number: 2), disc: .init(number: 1))
+    var compilationTrack = second
+    compilationTrack.artist = "Guest"
+    compilationTrack.album = first.album
+    compilationTrack.metadata = TrackMetadata(albumArtist: "Various Artists", composer: "Composer",
+                                             track: .init(number: 1), disc: .init(number: 1))
+    let compilation = LibraryIndex([collaboration, compilationTrack])
+    let compilationGroups = compilation.groups(category: .albums, query: "")
+    check(compilationGroups.count == 1 && compilationGroups[0].tracks == [compilationTrack, collaboration],
+          "Album artist groups collaborations in disc/track order")
+    check(compilation.filter("Composer") == [compilationTrack], "Extended tag search")
+    let metadataRoundTrip = try JSONDecoder().decode(Track.self, from: JSONEncoder().encode(collaboration))
+    check(metadataRoundTrip == collaboration, "Extended metadata round trip")
+
     var queue = PlaybackQueue()
     queue.replace([first.id, second.id, third.id], current: second.id, shuffled: true)
     check(queue.order.first == second.id && Set(queue.order) == Set([first.id, second.id, third.id]), "Shuffle membership")
@@ -58,11 +85,34 @@ func runTests() async throws {
     let loaded = try await repo.load()
     check(loaded == [first, second], "Legacy read")
     try await repo.commit([first, third])
+    let migratedEnvelope = try JSONDecoder().decode(LibraryRepository.Snapshot.self, from: Data(contentsOf: url))
+    check(migratedEnvelope.schemaVersion == 2, "Legacy mutation writes schema 2")
     let backupBytes = try Data(contentsOf: backup)
     check(backupBytes == legacy, "Previous index preserved")
     let fresh = LibraryRepository(root: root)
     let migrated = try await fresh.load()
     check(migrated == [first, third], "Versioned reload")
+
+    // Explicit version-one fixture must remain readable and preserve its bytes until mutation.
+    let schemaOneRoot = root.appendingPathComponent("schema-one", isDirectory: true)
+    try FileManager.default.createDirectory(at: schemaOneRoot, withIntermediateDirectories: true)
+    let schemaOneIndex = schemaOneRoot.appendingPathComponent("library.json")
+    let schemaOneBytes = try JSONEncoder().encode(LibraryRepository.Snapshot(schemaVersion: 1, tracks: [first]))
+    try schemaOneBytes.write(to: schemaOneIndex)
+    let schemaOneRepo = LibraryRepository(root: schemaOneRoot)
+    let schemaOneTracks = try await schemaOneRepo.load()
+    check(schemaOneTracks == [first] && schemaOneTracks[0].metadata == nil, "Schema one compatible")
+    check(try Data(contentsOf: schemaOneIndex) == schemaOneBytes, "Opening does not rewrite schema one")
+    try await schemaOneRepo.commit([collaboration])
+    let metadataReload = try await LibraryRepository(root: schemaOneRoot).load()
+    check(metadataReload == [collaboration], "Schema two preserves metadata and track identity")
+    let versionOneBackup = try Data(contentsOf: schemaOneRoot.appendingPathComponent("library.previous.json"))
+    check(versionOneBackup == schemaOneBytes, "Migration retains exact previous index bytes")
+    let futureBackup = Data("{\"schemaVersion\":99,\"tracks\":[]}".utf8)
+    try futureBackup.write(to: schemaOneRoot.appendingPathComponent("library.previous.json"))
+    do { try await schemaOneRepo.commit([first]); fatalError("Future backup overwritten") } catch {}
+    check(try Data(contentsOf: schemaOneRoot.appendingPathComponent("library.previous.json")) == futureBackup,
+          "Future backup protected")
 
     var unsafe = first
     unsafe.file = "../outside.mp3"

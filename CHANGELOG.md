@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1 — Metadata and extensibility foundation
+- Add optional typed embedded album artist, composer, genre, release/recording dates, disc and track positions, and original filename.
+- Read supported native ID3/iTunes tags, reject malformed positions, group albums by album artist and sort tracks by disc/track with stable fallback.
+- Write schema 2 on mutation, read legacy and schema 1 without rewriting, preserve backup bytes, and refuse unknown newer backup schemas.
+- Document long-term extensibility and native Liquid Glass requirements.
+
 ## 0.3.0 — Foundation hardening
 - Add throttled import progress, cancellation with committed-batch retention, and a full diagnostic report behind concise alerts.
 - Use the pinned Xcode toolchain for host tests, explicit simulator architecture and separate iPad launch validation.

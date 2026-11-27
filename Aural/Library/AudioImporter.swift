@@ -80,7 +80,7 @@ actor AudioImporter {
                 guard let item = AVMetadataItem.metadataItems(from: metadata, withKey: key, keySpace: .common).first else {
                     return nil
                 }
-                return try? await item.load(.stringValue)
+                return TrackMetadata.cleanText(try? await item.load(.stringValue))
             }
 
             let filename = url.deletingPathExtension().lastPathComponent
@@ -88,6 +88,8 @@ actor AudioImporter {
             let title = await value(.commonKeyTitle) ?? (parts.count == 2 ? parts[1] : filename)
             let artist = await value(.commonKeyArtist) ?? (parts.count == 2 ? parts[0] : "Unknown artist")
             let album = await value(.commonKeyAlbumName) ?? "Unknown album"
+            let allMetadata = (try? await asset.load(.metadata)) ?? metadata
+            let extended = try await EmbeddedMetadata.read(allMetadata, filename: url.lastPathComponent)
             var artName: String?
             if let item = AVMetadataItem.metadataItems(from: metadata, withKey: AVMetadataKey.commonKeyArtwork, keySpace: .common).first,
                let data = try? await item.load(.dataValue), data.count <= 20_000_000,
@@ -107,7 +109,7 @@ actor AudioImporter {
             try fm.removeItem(at: staging)
             return Track(id: id, file: name, title: title, artist: artist, album: album,
                          duration: duration.isFinite ? max(0, duration) : 0,
-                         artwork: artName, contentHash: hash)
+                         artwork: artName, contentHash: hash, metadata: extended)
         } catch {
             var failures: [String] = []
             for path in published + [staging] {

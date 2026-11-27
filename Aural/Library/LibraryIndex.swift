@@ -35,7 +35,11 @@ struct LibraryIndex: Sendable {
         self.tracks = tracks
         favorites = tracks.filter(\.favorite)
         byID = Dictionary(tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        searchable = Dictionary(tracks.map { ($0.id, "\($0.title) \($0.artist) \($0.album)") }, uniquingKeysWith: { first, _ in first })
+        searchable = Dictionary(tracks.map { track in
+            let extra = [track.metadata?.albumArtist, track.metadata?.composer, track.metadata?.genre,
+                         track.metadata?.releaseDate, track.metadata?.recordingDate].compactMap { $0 }
+            return (track.id, ([track.title, track.artist, track.album] + extra).joined(separator: " "))
+        }, uniquingKeysWith: { first, _ in first })
         albums = Self.makeGroups(tracks, category: .albums)
         artists = Self.makeGroups(tracks, category: .artists)
         groupsByKey = Dictionary(uniqueKeysWithValues: (albums + artists).map { ($0.id, $0) })
@@ -80,12 +84,22 @@ struct LibraryIndex: Sendable {
     private static func makeGroups(_ tracks: [Track], category: LibraryCategory) -> [Group] {
         let grouped = Dictionary(grouping: tracks) { track -> Group.Key in
             if category == .artists { return .init(category: category, album: "", artist: track.artist, single: nil) }
-            return .init(category: category, album: track.album, artist: track.artist, single: track.album == "Unknown album" ? track.id : nil)
+            return .init(category: category, album: track.album, artist: track.albumArtist, single: track.album == "Unknown album" ? track.id : nil)
         }
         return grouped.compactMap { key, songs in
             guard let first = songs.first else { return nil }
             let title = category == .artists ? first.artist : (key.single == nil ? first.album : first.title)
-            return Group(id: key, title: title, subtitle: category == .artists ? "\(songs.count) songs" : first.artist, tracks: songs)
+            // Disc and track order are stable; unnumbered tracks retain import order.
+            let ordered = category == .albums ? songs.enumerated().sorted { lhs, rhs in
+                let leftDisc = lhs.element.metadata?.disc?.number ?? 1
+                let rightDisc = rhs.element.metadata?.disc?.number ?? 1
+                if leftDisc != rightDisc { return leftDisc < rightDisc }
+                let leftTrack = lhs.element.metadata?.track?.number ?? Int.max
+                let rightTrack = rhs.element.metadata?.track?.number ?? Int.max
+                if leftTrack != rightTrack { return leftTrack < rightTrack }
+                return lhs.offset < rhs.offset
+            }.map(\.element) : songs
+            return Group(id: key, title: title, subtitle: category == .artists ? "\(songs.count) songs" : key.artist, tracks: ordered)
         }.sorted {
             let titleOrder = $0.title.localizedStandardCompare($1.title)
             if titleOrder != .orderedSame { return titleOrder == .orderedAscending }

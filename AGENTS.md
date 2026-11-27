@@ -16,3 +16,9 @@
 
 ## Engineering acceptance principles
 Cleanliness, organization, lightweight resource use, simplicity, stability, measured performance, smoothness, fluidity, snappiness, seamless transitions, consistency, original audio fidelity, data integrity, root-cause resolution, maintainability and verification apply to every change. Preserve clean responsibility boundaries, avoid unnecessary code and dependencies, and measure responsiveness, frame pacing and resource use before making performance claims. Never mask defects for a green build.
+
+## Long-term architecture and design
+- Extensibility, scalability, backward compatibility and modularity reinforce the 16 principles; implement only justified capabilities, not speculative layers.
+- Preserve stable track IDs and original audio bytes across schema upgrades. Test older indexes, migration, recovery, and refusal of newer schemas. Missing tags must remain unknown rather than invented.
+- Target full native Apple Liquid Glass across iPhone and iPad presentation. Prefer platform controls, materials and transitions over imitation; support Dynamic Type, VoiceOver, Reduce Motion and Reduce Transparency. Profile frame pacing and resource use before approval. Do not couple appearance to storage or playback.
+- Keep Aural offline-first and free to develop; no new dependencies or services without demonstrated need and explicit approval.

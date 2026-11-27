@@ -3,6 +3,8 @@ import Foundation
 /// Single-process, single-writer persistence. Every mutation verifies the last
 /// committed index. Unreadable data is never implicitly replaced or deleted.
 actor LibraryRepository {
+    private static let currentSchema = 2
+
     struct Snapshot: Codable, Sendable {
         let schemaVersion: Int
         let tracks: [Track]
@@ -84,6 +86,9 @@ actor LibraryRepository {
         var diagnostics: [String] = []
         if exists(backupURL) {
             do { retired = try decode(readIndex(backupURL)) }
+            catch Failure.unsupportedSchema(let version) {
+                throw Failure.unsupportedSchema(version)
+            }
             catch {
                 diagnostics.append("Previous backup could not be read; its media will not be reclaimed: \(error.localizedDescription)")
             }
@@ -184,21 +189,21 @@ actor LibraryRepository {
     private func encode(_ tracks: [Track]) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        return try encoder.encode(Snapshot(schemaVersion: 1, tracks: tracks))
+        return try encoder.encode(Snapshot(schemaVersion: Self.currentSchema, tracks: tracks))
     }
 
     private func decode(_ bytes: Data) throws -> [Track] {
         let decoder = JSONDecoder()
         let tracks: [Track]
         if let snapshot = try? decoder.decode(Snapshot.self, from: bytes) {
-            guard snapshot.schemaVersion == 1 else { throw Failure.unsupportedSchema(snapshot.schemaVersion) }
+            guard (1...Self.currentSchema).contains(snapshot.schemaVersion) else { throw Failure.unsupportedSchema(snapshot.schemaVersion) }
             tracks = snapshot.tracks
         } else if let legacy = try? decoder.decode([Track].self, from: bytes) {
             tracks = legacy
         } else {
             // Detect even a newer envelope whose Track schema cannot be decoded.
             if let object = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
-               let version = object["schemaVersion"] as? Int, version != 1 {
+               let version = object["schemaVersion"] as? Int, !(1...Self.currentSchema).contains(version) {
                 throw Failure.unsupportedSchema(version)
             }
             throw Failure.invalidIndex
@@ -253,7 +258,8 @@ actor LibraryRepository {
         guard Set(tracks.map(\.id)).count == tracks.count,
               Set(names.map(key)).count == names.count,
               names.allSatisfy(validName),
-              tracks.allSatisfy({ $0.duration.isFinite && $0.duration >= 0 }) else {
+              tracks.allSatisfy({ $0.duration.isFinite && $0.duration >= 0 &&
+                  ($0.metadata?.track?.isValid ?? true) && ($0.metadata?.disc?.isValid ?? true) }) else {
             throw Failure.invalidIndex
         }
     }
