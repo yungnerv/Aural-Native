@@ -20,6 +20,7 @@ import Foundation
     private var mediaReset = false
     private var lastKnownPosition = 0.0
     private(set) var wantsPlayback = false
+    var canSeek: Bool { player.currentItem.map { $0.status != .failed } ?? false }
     var isPlaying: Bool { player.timeControlStatus == .playing }
 
     var onProgress: ((Double, Double?) -> Void)?
@@ -116,14 +117,14 @@ import Foundation
         ) { @Sendable [weak self] _ in
             Task { @MainActor in
                 guard let self, self.itemGeneration == generation else { return }
-                self.fail("Playback failed. Try another track.")
+                self.failItem("Playback stopped. Press Play to retry this track.")
             }
         })
         itemObserver = item.observe(\.status, options: [.initial, .new]) { @Sendable [weak self] _, _ in
             Task { @MainActor in
                 guard let self, self.itemGeneration == generation,
                       let current = self.player.currentItem, current.status == .failed else { return }
-                self.fail(current.error?.localizedDescription ?? "Unable to play this file.")
+                self.failItem(current.error?.localizedDescription ?? "Unable to play this file.")
             }
         }
     }
@@ -201,7 +202,7 @@ import Foundation
     }
 
     func resume() throws {
-        if (mediaReset || player.currentItem?.status == .failed), let url = preparedURL {
+        if !canSeek, let url = preparedURL {
             let position = mediaReset ? lastKnownPosition : 0
             try prepare(url)
             if position > 0 {
@@ -238,7 +239,7 @@ import Foundation
 
     @discardableResult
     func seek(_ seconds: Double, resumeAfterSeek: Bool = false) -> Bool {
-        guard let current = player.currentItem, current.status != .failed, seconds.isFinite else { return false }
+        guard canSeek, seconds.isFinite else { return false }
         seekGeneration += 1
         let generation = seekGeneration
         let item = itemGeneration
@@ -271,6 +272,14 @@ import Foundation
 
     private func reportState() {
         onState?(wantsPlayback, isPlaying)
+    }
+
+    private func failItem(_ message: String) {
+        // A failed-to-end notification can arrive while status is still ready.
+        // Detach the item and invalidate queued callbacks before publishing the failure.
+        removeItemObservers()
+        player.replaceCurrentItem(with: nil)
+        fail(message)
     }
 
     private func fail(_ message: String) {

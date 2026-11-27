@@ -94,7 +94,7 @@ struct PlayerView: View {
                 store.seek(position)
             }
             .id(store.playbackRevision)
-            .disabled(!store.libraryReady)
+            .disabled(!store.canSeek)
 
             transport
             modes

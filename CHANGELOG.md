@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.9 — Playback failure recovery
+- Detach terminally failed items, invalidate pending callbacks, and rebuild the selected track on explicit Play. Disable seeking in the player and remote controls until an item is available.
+
 ## 0.3.8 — Library, playback startup and validation
 - Defer player and remote-command setup until playback. Preserve resume intent on duplicate interruption notifications.
 - Resolve track IDs through the position index and reuse it for queue pruning. Avoid comparing the entire library to detect pending import changes.

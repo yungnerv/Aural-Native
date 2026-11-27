@@ -205,6 +205,35 @@ final class NativeIntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testFailedToEndDetachesItemAndExplicitRetryRebuildsIt() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID()).wav")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try fixture(at: url)
+        let player = AVPlayer()
+        let engine = PlaybackEngine(player: player)
+        defer { engine.clear() }
+        try engine.prepare(url)
+        let oldItem = try XCTUnwrap(player.currentItem)
+        var failures = 0
+        engine.onFailure = { _ in failures += 1 }
+        for _ in 0..<2 {
+            NotificationCenter.default.post(name: .AVPlayerItemFailedToPlayToEndTime, object: oldItem)
+        }
+        let deadline = ContinuousClock.now + .seconds(3)
+        while player.currentItem != nil && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertNil(player.currentItem)
+        XCTAssertFalse(engine.canSeek)
+        XCTAssertFalse(engine.wantsPlayback)
+        try engine.resume()
+        let replacement = try XCTUnwrap(player.currentItem)
+        XCTAssertFalse(replacement === oldItem)
+        XCTAssertTrue(engine.wantsPlayback)
+        XCTAssertEqual(failures, 1)
+    }
+
+    @MainActor
     func testDuplicateInterruptionPreservesIntentUntilExplicitPause() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

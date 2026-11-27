@@ -34,6 +34,7 @@ import OSLog
     var current: Track? { currentID.flatMap { index[$0] } }
     @Published private(set) var canAdvance = false
     @Published private(set) var canGoBack = false
+    var canSeek: Bool { libraryReady && currentID != nil && duration > 0 && engine.canSeek }
     var canToggle: Bool { currentID != nil && (playing || libraryReady) }
 
     private var elapsed: Double {
@@ -395,7 +396,7 @@ import OSLog
         else if libraryReady { available.insert(.play) }
         if canAdvance { available.insert(.next) }
         if canGoBack { available.insert(.previous) }
-        if libraryReady && duration > 0 { available.insert(.seek) }
+        if canSeek { available.insert(.seek) }
         system?.update(track: current, revision: playbackRevision, elapsed: elapsed, duration: duration,
                        playing: actualPlaying, available: available, artworkURL: artworkURL(current))
     }
