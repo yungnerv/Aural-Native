@@ -28,7 +28,10 @@ final class LaunchTests: XCTestCase {
         app.launchArguments = ["--aural-ui-fixture"]
         app.launch()
 
-        let songs = app.buttons["Songs"]
+        XCTAssertTrue(app.navigationBars["Albums"].waitForExistence(timeout: 30))
+        app.buttons["Artists"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Artists"].waitForExistence(timeout: 10))
+        let songs = app.buttons["Songs"].firstMatch
         XCTAssertTrue(songs.waitForExistence(timeout: 30))
         songs.tap()
 
@@ -53,6 +56,12 @@ final class LaunchTests: XCTestCase {
             XCTFail("The native mini-player must be accessible on both iPhone and iPad")
             return
         }
+        app.buttons["Favorites"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Favorites"].waitForExistence(timeout: 10))
+        XCTAssertTrue(open.waitForExistence(timeout: 10))
+        songs.tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        XCTAssertTrue(row.isSelected)
         capture(app, named: "Native Library and Mini Player")
         XCTAssertEqual(app.buttons.matching(identifier: "open-player").count, 1,
                        "Only one active mini-player must be exposed")
