@@ -51,6 +51,14 @@ func runTests() async throws {
     queue.retain([third.id])
     check(queue.order == [third.id] && queue.original == [third.id], "Queue prunes unavailable tracks")
 
+    check(queue.adjacent(to: first.id, direction: 1) == nil, "Pruned queue position removed")
+    queue.replace([first.id, second.id, first.id, third.id], current: second.id, shuffled: false)
+    check(queue.order == [first.id, second.id, third.id], "Queue deduplicates IDs")
+    check(queue.adjacent(to: second.id, direction: Int.max) == nil, "Queue offset overflow rejected")
+    check(queue.adjacent(to: second.id, direction: -1) == first.id, "Queue reverse lookup")
+    queue.setShuffle(true, current: second.id)
+    check(queue.adjacent(to: second.id, direction: 1) == queue.order[1], "Shuffle rebuilds position index")
+
     let index = LibraryIndex([first, second, third])
     check(index.byID[first.id] == first && index.filter("ARTIST").count == 3, "Index and search")
     check(index.filter("", favoritesOnly: true) == [first], "Favorites")
