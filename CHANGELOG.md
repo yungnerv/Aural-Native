@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2 — Native Liquid Glass presentation
+- Adopt typed system tabs, native tab-bar minimization and adaptive mini-player placement. Keep the accessory's system glass surface instead of duplicating it.
+- Present Now Playing in a native sheet/navigation stack with Liquid Glass playback, favorite and mode controls, system slider, adaptive wide layout and accessible labels/states.
+- Keep album artwork and content surfaces free of unnecessary glass effects. Add isolated Debug-only synthetic-library UI tests and real simulator screenshot attachments.
+
 ## 0.3.1 — Metadata and extensibility foundation
 - Add a native tagged M4A import fixture and validate the actual device executable architecture and Mach-O platform before packaging.
 - Add optional typed embedded album artist, composer, genre, release/recording dates, disc and track positions, and original filename.

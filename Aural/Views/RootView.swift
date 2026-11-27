@@ -36,18 +36,31 @@ struct RootView: View {
     }
     var body: some View {
         TabView(selection: $tab) {
-            NavigationStack { library }.tabItem { Label("Library", systemImage: "books.vertical") }.tag(0)
-            NavigationStack { favorites.navigationTitle("Favorites") }.tabItem { Label("Favorites", systemImage: "heart") }.tag(1)
-            NavigationStack { settings }
-                .tabItem { Label("Settings", systemImage: "gearshape") }
-                .tag(2)
+            Tab("Library", systemImage: "books.vertical", value: 0) {
+                NavigationStack { library }
+            }
+            Tab("Favorites", systemImage: "heart", value: 1) {
+                NavigationStack { favorites.navigationTitle("Favorites") }
+            }
+            Tab("Settings", systemImage: "gearshape", value: 2) {
+                NavigationStack { settings }
+            }
         }
         .tint(.mint)
-        .tabViewBottomAccessory(isEnabled: store.current != nil) { if let track = store.current { mini(track) } }
+        .tabBarMinimizeBehavior(.onScrollDown)
+        .tabViewBottomAccessory(isEnabled: store.current != nil) {
+            if let track = store.current {
+                MiniPlayerView(track: track) { showPlayer = true }
+            }
+        }
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.audio], allowsMultipleSelection: true) { result in
             switch result { case .success(let urls): store.beginImport(urls); case .failure(let error): store.message = error.localizedDescription }
         }
-        .sheet(isPresented: $showPlayer) { PlayerView(progress: store.clock).environmentObject(store) }
+        .sheet(isPresented: $showPlayer) {
+            PlayerView(progress: store.clock)
+                .environmentObject(store)
+                .presentationDragIndicator(.visible)
+        }
         .confirmationDialog("Restore previous library index?", isPresented: $confirmRecovery, titleVisibility: .visible) {
             Button("Restore previous index") { store.restoreLibrary() }
             Button("Cancel", role: .cancel) {}
@@ -56,7 +69,13 @@ struct RootView: View {
     }
     var library: some View {
         VStack(spacing: 0) {
-            Picker("Library view", selection: $category) { ForEach(LibraryCategory.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented).padding(.horizontal).padding(.vertical, 8)
+            Picker("Library view", selection: $category) {
+                ForEach(LibraryCategory.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("library-category")
+            .padding(.horizontal)
+            .padding(.vertical, 8)
             if store.importing {
                 HStack(spacing: 12) {
                     ProgressView(value: store.importProgress) {
@@ -184,14 +203,10 @@ struct RootView: View {
         List(songs) { track in
             Button { store.play(track, in: songs) } label: {
                 HStack(spacing: 12) { Cover(url: store.artworkURL(track)).frame(width: 46,height: 46); VStack(alignment: .leading, spacing: 4) { Text(track.title).foregroundStyle(.primary).lineLimit(1); Text(track.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1) }; Spacer(); if store.currentID == track.id { Image(systemName: "waveform").foregroundStyle(.mint) } }
-            }.buttonStyle(.plain).swipeActions { Button { store.favorite(track) } label: { Label(track.favorite ? "Remove favorite" : "Favorite", systemImage: track.favorite ? "heart.slash" : "heart") }.tint(.mint).disabled(store.mutationBusy || !store.libraryReady) }.contextMenu { Button { store.favorite(track) } label: { Label(track.favorite ? "Remove favorite" : "Favorite", systemImage: "heart") }.disabled(store.mutationBusy || !store.libraryReady); Button(role: .destructive) { store.remove(track) } label: { Label("Remove from Aural", systemImage: "trash") }.disabled(store.mutationBusy || !store.libraryReady) }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("track-\(track.id.uuidString)")
+            .swipeActions { Button { store.favorite(track) } label: { Label(track.favorite ? "Remove favorite" : "Favorite", systemImage: track.favorite ? "heart.slash" : "heart") }.tint(.mint).disabled(store.mutationBusy || !store.libraryReady) }.contextMenu { Button { store.favorite(track) } label: { Label(track.favorite ? "Remove favorite" : "Favorite", systemImage: "heart") }.disabled(store.mutationBusy || !store.libraryReady); Button(role: .destructive) { store.remove(track) } label: { Label("Remove from Aural", systemImage: "trash") }.disabled(store.mutationBusy || !store.libraryReady) }
         }.listStyle(.plain)
-    }
-    func mini(_ track: Track) -> some View {
-        HStack(spacing: 10) {
-            Button { showPlayer = true } label: { HStack(spacing: 10) { Cover(url: store.artworkURL(track)).frame(width: 40,height: 40); VStack(alignment: .leading,spacing: 3) { Text(track.title).font(.subheadline.weight(.semibold)).lineLimit(1); Text(track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1) }; Spacer(minLength: 0) }.foregroundStyle(.primary) }.buttonStyle(.plain)
-            Button { store.toggle() } label: { Image(systemName: store.playing ? "pause.fill" : "play.fill").frame(width:44,height:44) }.accessibilityLabel(store.playing ? "Pause" : "Play").disabled(!store.canToggle)
-            Button { store.advance(1) } label: { Image(systemName: "forward.end.fill").frame(width:44,height:44) }.accessibilityLabel("Next track").disabled(!store.canAdvance)
-        }.padding(.horizontal, 12).foregroundStyle(.primary)
     }
 }

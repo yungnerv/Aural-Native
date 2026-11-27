@@ -43,3 +43,9 @@ Schema 2 adds optional TrackMetadata with typed disc/track positions, album arti
 Native Liquid Glass is a persistent presentation requirement, independent of library and playback state. The current UI is not yet a complete Liquid Glass implementation.
 
 A generated tagged M4A fixture validates actual embedded metadata extraction and exact import bytes without shipping copyrighted media. The device build checks ARM64 and Mach-O iOS platform before packaging; simulator binaries are not accepted as device IPAs. Tests do not establish signed installation compatibility.
+
+
+## Native Liquid Glass presentation (0.3.2)
+Aural adopts SwiftUI's system tabs, navigation/toolbars, menus, segmented picker, slider, sheet and tabViewBottomAccessory. On iPhone the mini-player adapts to expanded/inline placement and the system tab bar can minimize on scroll. Now Playing uses native glass/glassProminent button styles in GlassEffectContainer, with readable content kept separate from controls and adaptive layout for wide windows. Dark appearance is retained. No custom blur shaders or duplicate glass surfaces are introduced. System styles participate in accessibility and platform appearance changes; actual Dynamic Type, VoiceOver, Reduce Transparency, frame pacing and iPad resizing still require visual and physical validation.
+
+The populated-library UI test uses a Debug-only launch argument and a unique temporary root with generated PCM audio. Release builds exclude fixture generation. Test attachments capture actual library/mini-player and player presentation in the simulator; they are not conceptual renders. No changes to the storage schema or playback engine are required for this presentation change.

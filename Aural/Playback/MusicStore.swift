@@ -43,8 +43,8 @@ import Combine
         set { if clock.duration != newValue { clock.duration = newValue } }
     }
 
-    init() {
-        root = URL.applicationSupportDirectory.appendingPathComponent("AuralLibrary", isDirectory: true)
+    init(root: URL = URL.applicationSupportDirectory.appendingPathComponent("AuralLibrary", isDirectory: true)) {
+        self.root = root
         repository = LibraryRepository(root: root)
         engine.onProgress = { [weak self] elapsed, duration in
             guard let self, self.currentID != nil else { return }
