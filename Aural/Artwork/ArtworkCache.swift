@@ -11,6 +11,7 @@ actor ArtworkCache {
     }
 
     func image(at url: URL, maxPixelSize: Int) -> UIImage? {
+        guard !Task.isCancelled, maxPixelSize > 0, maxPixelSize <= 4096 else { return nil }
         let key = "\(url.path)#\(maxPixelSize)" as NSString
         if let hit = cache.object(forKey: key) { return hit }
         guard !Task.isCancelled,
@@ -21,6 +22,7 @@ actor ArtworkCache {
                 kCGImageSourceCreateThumbnailWithTransform: true,
                 kCGImageSourceShouldCacheImmediately: true
               ] as CFDictionary) else { return nil }
+        guard !Task.isCancelled else { return nil }
         let result = UIImage(cgImage: image)
         cache.setObject(result, forKey: key, cost: image.bytesPerRow * image.height)
         return result
