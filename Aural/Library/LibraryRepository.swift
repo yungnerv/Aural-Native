@@ -38,6 +38,7 @@ actor LibraryRepository {
     enum Failure: LocalizedError {
         case notOpen, invalidIndex, changedOnDisk, unsupportedSchema(Int)
         case recoveryUnavailable, missingMedia, unsafeMedia, damagedMedia
+        case damagedFavorites, unsupportedFavorites(Int)
 
         var errorDescription: String? {
             switch self {
@@ -45,6 +46,8 @@ actor LibraryRepository {
             case .invalidIndex: return "Invalid library index. Existing data is protected."
             case .changedOnDisk: return "The library index changed unexpectedly. Reopen it before modifying it."
             case .unsupportedSchema(let version): return "Unsupported library schema \(version). Existing data is protected."
+            case .damagedFavorites: return "The recent favorites file is damaged."
+            case .unsupportedFavorites(let version): return "Favorites format \(version) requires a different app version."
             case .recoveryUnavailable: return "There is no eligible previous index to restore."
             case .missingMedia: return "The previous index references missing or invalid files. No files have been changed."
             case .unsafeMedia: return "A media path is not a regular file. No unsafe deletion was attempted."
@@ -66,6 +69,7 @@ actor LibraryRepository {
     private var previousBytes: Data?
     private var committedNames = Set<String>()
     private var favoritesURL: URL { root.appendingPathComponent(".favorite-changes.json") }
+    private var damagedFavoritesIndex: Data?
     private var favoriteBytes: Data?
     private var changes: FavoriteChanges?
     private var indexURL: URL { root.appendingPathComponent("library.json") }
@@ -91,7 +95,11 @@ actor LibraryRepository {
         }
         let bytes = try readIndex(indexURL)
         let snapshot = try decode(bytes)
-        try loadFavoriteChanges(for: bytes)
+        do { try loadFavoriteChanges(for: bytes) }
+        catch Failure.damagedFavorites {
+            damagedFavoritesIndex = bytes
+            throw Failure.damagedFavorites
+        }
         accept(bytes, names: snapshot.names)
         return changes?.applying(to: snapshot.tracks) ?? snapshot.tracks
     }
@@ -99,9 +107,27 @@ actor LibraryRepository {
     private func loadFavoriteChanges(for bytes: Data) throws {
         favoriteBytes = exists(favoritesURL) ? try readIndex(favoritesURL) : nil
         guard let favoriteBytes else { changes = nil; return }
-        let saved = try JSONDecoder().decode(FavoriteChanges.self, from: favoriteBytes)
-        guard saved.formatVersion == 1, Self.validDigest(saved.baseHash) else { throw Failure.invalidIndex }
+        let decoder = JSONDecoder()
+        guard let saved = try? decoder.decode(FavoriteChanges.self, from: favoriteBytes) else {
+            struct Header: Decodable { let formatVersion: Int }
+            if let header = try? decoder.decode(Header.self, from: favoriteBytes), header.formatVersion != 1 {
+                throw Failure.unsupportedFavorites(header.formatVersion)
+            }
+            throw Failure.damagedFavorites
+        }
+        guard saved.formatVersion == 1 else { throw Failure.unsupportedFavorites(saved.formatVersion) }
+        guard Self.validDigest(saved.baseHash) else { throw Failure.damagedFavorites }
         changes = saved.baseHash == FileDigest.sha256(bytes) ? saved : nil
+    }
+
+    /// Explicit recovery for a healthy catalog with an unreadable favorites overlay.
+    func archiveDamagedFavorites() throws {
+        guard !opened, let damagedFavoritesIndex, let favoriteBytes else { throw Failure.recoveryUnavailable }
+        guard try readIndex(indexURL) == damagedFavoritesIndex,
+              try readIndex(favoritesURL) == favoriteBytes else { throw Failure.changedOnDisk }
+        let archive = root.appendingPathComponent(".favorite-changes.damaged-\(UUID().uuidString).json")
+        try fm.moveItem(at: favoritesURL, to: archive)
+        invalidate()
     }
 
     func setFavorite(_ value: Bool, id: UUID, in index: LibraryIndex) throws -> LibraryIndex {
@@ -287,6 +313,7 @@ actor LibraryRepository {
 
     private func invalidate() {
         opened = false
+        damagedFavoritesIndex = nil
         previousBytes = nil
         committedNames.removeAll()
         favoriteBytes = nil

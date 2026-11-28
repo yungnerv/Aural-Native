@@ -9,6 +9,7 @@ import OSLog
     var tracks: [Track] { index.tracks }
     @Published private(set) var libraryReady = false
     @Published private(set) var libraryLoading = true
+    @Published private(set) var canRecoverFavorites = false
     @Published private(set) var recoveryReport: LibraryRepository.RecoveryReport?
     @Published private(set) var mutationBusy = false
     @Published private(set) var currentID: UUID?
@@ -101,6 +102,7 @@ import OSLog
     private func openLibrary() async {
         libraryLoading = true
         recoveryReport = nil
+        canRecoverFavorites = false
         defer { libraryLoading = false }
         do {
             await apply(try await repository.load())
@@ -109,7 +111,11 @@ import OSLog
         } catch {
             libraryReady = false
             updateSystem()
-            recoveryReport = try? await repository.inspectRecovery()
+            if case LibraryRepository.Failure.damagedFavorites = error {
+                canRecoverFavorites = true
+            } else {
+                recoveryReport = try? await repository.inspectRecovery()
+            }
             message = "Library could not be opened. Existing files are protected.\n\(error.localizedDescription)"
         }
     }
@@ -120,6 +126,17 @@ import OSLog
         libraryReady = false
         Task {
             defer { mutationBusy = false }
+            await openLibrary()
+        }
+    }
+
+    func recoverFavorites() {
+        guard canRecoverFavorites, !libraryReady, !mutationBusy, !libraryLoading else { return }
+        mutationBusy = true
+        Task {
+            defer { mutationBusy = false }
+            do { try await repository.archiveDamagedFavorites() }
+            catch { message = error.localizedDescription; return }
             await openLibrary()
         }
     }

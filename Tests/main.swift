@@ -36,7 +36,7 @@ func runTests() async throws {
     let compilationGroups = compilation.groups(category: .albums)
     check(compilationGroups.count == 1 && compilationGroups[0].tracks == [compilationTrack, collaboration],
           "Album artist groups collaborations in disc/track order")
-    check(try compilation.search("Composer", category: .songs).tracks == [compilationTrack], "Extended tag search")
+    check(try await compilation.search("Composer", category: .songs).tracks == [compilationTrack], "Extended tag search")
     let metadataRoundTrip = try JSONDecoder().decode(Track.self, from: JSONEncoder().encode(collaboration))
     check(metadataRoundTrip == collaboration, "Extended metadata round trip")
 
@@ -46,11 +46,11 @@ func runTests() async throws {
     anotherNamed.hasAlbumTag = true
     let named = LibraryIndex([namedUnknown, anotherNamed])
     check(named.groups(category: .albums).count == 1, "Explicit Unknown album tag groups normally")
-    let artistResults = try compilation.search("Composer", category: .artists)
+    let artistResults = try await compilation.search("Composer", category: .artists)
     check(artistResults.groups.first?.subtitle == "1 song", "Singular artist count")
     var titled = second
     titled.title = "Solo match"
-    let partial = try LibraryIndex([first, titled]).search("Solo match", category: .artists)
+    let partial = try await LibraryIndex([first, titled]).search("Solo match", category: .artists)
     check(partial.groups.first?.tracks.count == 2, "Artist result opens full artist")
     var queue = PlaybackQueue()
     queue.replace([first.id, second.id, third.id], current: second.id, shuffled: true)
@@ -74,9 +74,9 @@ func runTests() async throws {
     let index = LibraryIndex([first, second, third])
     check(index[first.id] == first && index[UUID()] == nil, "ID lookup and missing track")
     check(index.favorites == [first], "Favorites")
-    let searchResult = try index.search("ARTIST", category: .albums)
+    let searchResult = try await index.search("ARTIST", category: .albums)
     check(searchResult.tracks == [first, second, third] && searchResult.groups.count == 3, "Value snapshot search")
-    let noResults = try index.search("no matches", category: .songs)
+    let noResults = try await index.search("no matches", category: .songs)
     check(noResults.tracks.isEmpty && noResults.groups.isEmpty, "Empty search result")
     check(index.groups(category: .albums).count == 3, "Distinct untagged singles")
     let artistGroup = index.groups(category: .artists).first!
@@ -136,6 +136,30 @@ func runTests() async throws {
     let archived = try JSONDecoder().decode(LibraryRepository.Snapshot.self, from:
         Data(contentsOf: favoritesRoot.appendingPathComponent("library.previous.json")))
     check(archived.tracks == removed.tracks, "Previous catalog includes favorite changes")
+    let overlay = favoritesRoot.appendingPathComponent(".favorite-changes.json")
+    let catalogBeforeRecovery = try Data(contentsOf: mainIndex)
+    let corrupt = Data("incomplete favorites".utf8)
+    try corrupt.write(to: overlay)
+    do { _ = try await reader.load(); fatalError("Corrupt favorites opened") }
+    catch LibraryRepository.Failure.damagedFavorites {}
+    let newerOverlay = Data(#"{"formatVersion":2,"differentLayout":[]}"#.utf8)
+    try newerOverlay.write(to: overlay)
+    do { try await reader.archiveDamagedFavorites(); fatalError("Archived a changed overlay") }
+    catch LibraryRepository.Failure.changedOnDisk {}
+    do { _ = try await reader.load(); fatalError("Opened future favorites") }
+    catch LibraryRepository.Failure.unsupportedFavorites(2) {}
+    do { try await reader.archiveDamagedFavorites(); fatalError("Archived future favorites") }
+    catch LibraryRepository.Failure.recoveryUnavailable {}
+    try corrupt.write(to: overlay)
+    do { _ = try await reader.load(); fatalError("Corrupt favorites opened") }
+    catch LibraryRepository.Failure.damagedFavorites {}
+    try await reader.archiveDamagedFavorites()
+    check(try await reader.load() == removed.tracks + [third], "Recovered current catalog favorites")
+    check(try Data(contentsOf: mainIndex) == catalogBeforeRecovery, "Recovery preserves catalog bytes")
+    let files = try FileManager.default.contentsOfDirectory(at: favoritesRoot, includingPropertiesForKeys: nil)
+    let archivedOverlay = files.filter { $0.lastPathComponent.hasPrefix(".favorite-changes.damaged-") }
+    check(archivedOverlay.count == 1, "Archived exactly one damaged overlay")
+    check(try Data(contentsOf: archivedOverlay[0]) == corrupt, "Preserved damaged favorites bytes")
     // Explicit version-one fixture must remain readable and preserve its bytes until mutation.
     let schemaOneRoot = root.appendingPathComponent("schema-one", isDirectory: true)
     try FileManager.default.createDirectory(at: schemaOneRoot, withIntermediateDirectories: true)
@@ -425,13 +449,13 @@ func runTests() async throws {
     check(indexed.favorites.count == 1_000, "10k track favorites")
     check(indexed.groups(category: .artists).count == 100, "10k artist groups")
     for category in LibraryCategory.allCases {
-        let unfiltered = try indexed.search("", category: category)
+        let unfiltered = try await indexed.search("", category: category)
         check(unfiltered.tracks == large, "Empty search preserves track order")
         check(unfiltered.groups.map(\.id) == indexed.groups(category: category).map(\.id),
               "Empty search preserves cached group ordering")
     }
     let searchStart = ContinuousClock.now
-    let largeResults = try indexed.search("Artist 42", category: .albums)
+    let largeResults = try await indexed.search("Artist 42", category: .albums)
     check(largeResults.tracks.count == 100, "10k snapshot search")
     print("10k metadata search: \(ContinuousClock.now - searchStart) (host only)")
     print("10k metadata fixture commit/reload/index: \(Date().timeIntervalSince(started)) seconds (host only)")

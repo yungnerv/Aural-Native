@@ -24,7 +24,7 @@ if [[ "$TEST_STATUS" -eq 0 ]]; then
     --output-path "screenshots/$FAMILY"
   shopt -s nullglob
   captures=("screenshots/$FAMILY/"*.png)
-  if (( ${#captures[@]} < 9 )); then
+  if (( ${#captures[@]} < 10 )); then
     echo "Expected library, search, settings, landscape and player PNG attachments for $FAMILY" >&2
     TEST_STATUS=1
   fi

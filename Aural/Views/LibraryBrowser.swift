@@ -5,6 +5,7 @@ struct LibraryBrowser: View {
     @Binding var showFiles: Bool
     @Binding var confirmRecovery: Bool
     @EnvironmentObject private var store: MusicStore
+    @State private var confirmFavoritesRecovery = false
     @State private var search = ""
 
     private struct SearchKey: Equatable, Sendable {
@@ -57,6 +58,9 @@ struct LibraryBrowser: View {
                     }
                 } actions: {
                     Button("Reopen library") { store.retryLibrary() }.disabled(store.mutationBusy)
+                    if store.canRecoverFavorites {
+                        Button("Recover favorites…") { confirmFavoritesRecovery = true }.disabled(store.mutationBusy)
+                    }
                     if store.recoveryReport?.canRestore == true {
                         Button("Restore previous index…") { confirmRecovery = true }.disabled(store.mutationBusy)
                     }
@@ -68,18 +72,17 @@ struct LibraryBrowser: View {
             else if category == .songs { TrackList(songs: filtered) }
             else { groups }
         }
+        .confirmationDialog("Use favorites from the saved library?", isPresented: $confirmFavoritesRecovery, titleVisibility: .visible) {
+            Button("Archive damaged favorites and reopen") { store.recoverFavorites() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Recent favorite changes may be lost. The damaged file will be archived. Your music and saved library will be preserved.")
+        }
         .task(id: searchKey) {
             let key = searchKey
             guard !key.query.isEmpty else { searchSnapshot = nil; return }
             let snapshot = store.index
-            let worker = Task.detached(priority: .userInitiated) {
-                try snapshot.search(key.query, category: key.category)
-            }
-            let result = await withTaskCancellationHandler {
-                try? await worker.value
-            } onCancel: {
-                worker.cancel()
-            }
+            let result = try? await snapshot.search(key.query, category: key.category)
             guard !Task.isCancelled, key == searchKey, let result else { return }
             searchSnapshot = SearchSnapshot(key: key, result: result)
         }

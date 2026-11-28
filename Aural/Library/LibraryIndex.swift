@@ -87,8 +87,8 @@ struct LibraryIndex: Sendable {
         let groups: [Group]
     }
 
-    /// Search immutable snapshots independently of UI state.
-    func search(_ query: String, category: LibraryCategory) throws -> SearchResult {
+    /// Search an immutable snapshot off the caller's actor with inherited cancellation.
+    @concurrent func search(_ query: String, category: LibraryCategory) async throws -> SearchResult {
         try Task.checkCancellation()
         if query.isEmpty {
             return SearchResult(tracks: tracks, groups: groups(category: category))

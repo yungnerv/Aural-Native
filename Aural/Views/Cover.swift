@@ -20,7 +20,7 @@ struct Cover: View {
                     Image(systemName: "music.note").font(.system(size: max(15, geo.size.width * 0.27))).foregroundStyle(.secondary)
                 }
             }.frame(width: geo.size.width, height: geo.size.height)
-                .clipped().clipShape(RoundedRectangle(cornerRadius: 12))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
                 .task(id: key) {
                     guard let url, let key else { image = nil; imageKey = nil; return }
                     let result = await ArtworkCache.shared.image(at: url, maxPixelSize: size)
