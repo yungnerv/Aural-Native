@@ -284,7 +284,19 @@ func runTests() async throws {
     do { _ = try await damagedRepo.restorePreviousIndex(); fatalError("Missing media recovery accepted") } catch {}
     check(try Data(contentsOf: recoveryIndex) == Data("corruption".utf8), "Failed restore preserves corrupt bytes")
     try Data("music".utf8).write(to: audio)
+    let recoveryOverlay = recoveryRoot.appendingPathComponent(".favorite-changes.json")
+    try newerOverlay.write(to: recoveryOverlay)
+    do { _ = try await damagedRepo.inspectRecovery(); fatalError("Offered recovery over future favorites") }
+    catch LibraryRepository.Failure.unsupportedFavorites(2) {}
+    do { _ = try await damagedRepo.restorePreviousIndex(); fatalError("Restored over future favorites") }
+    catch LibraryRepository.Failure.unsupportedFavorites(2) {}
+    try corrupt.write(to: recoveryOverlay)
     let restored = try await damagedRepo.restorePreviousIndex()
+    check(try await damagedRepo.load() == restored, "Restored catalog reopens after both files were corrupt")
+    let savedFavorites = try FileManager.default.contentsOfDirectory(at: recoveryRoot, includingPropertiesForKeys: nil)
+        .filter { $0.lastPathComponent.hasPrefix(".favorite-changes.damaged-") }
+    check(savedFavorites.count == 1, "Archived the damaged favorites during catalog recovery")
+    check(try Data(contentsOf: savedFavorites[0]) == corrupt, "Archived original favorites bytes")
     check(restored == [first], "Explicit previous index restore")
     let archives = try FileManager.default.contentsOfDirectory(atPath: recoveryRoot.path)
         .filter { $0.hasPrefix("library.damaged-") }

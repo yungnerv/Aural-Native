@@ -1,7 +1,8 @@
 # Changelog
 
 ## 0.3.15 — Favorites recovery and search cleanup
-- Offer explicit recovery when recent favorites are damaged but the catalog is healthy. Preserve the damaged file and refuse unknown favorites formats.
+- Honor system play and pause commands while a track selection is pending. Handle periodic progress directly on its configured main queue.
+- Offer explicit recovery when recent favorites are damaged but the catalog is healthy. Preserve the damaged file and refuse unknown favorites formats. Verify both files when restoring a previous catalog.
 - Simplify cancellation of background searches, remove redundant artwork clipping and verify all ten simulator captures by name. Wait for landscape layout and capture the full simulator display.
 
 ## 0.3.14 — Playback artwork and simulator diagnostics

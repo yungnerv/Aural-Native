@@ -78,7 +78,7 @@ import Foundation
         timeObserver = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main
         ) { @Sendable [weak self] _ in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 guard let self, self.playerGeneration == generation else { return }
                 self.reportProgress()
             }

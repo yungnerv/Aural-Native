@@ -125,9 +125,13 @@ actor LibraryRepository {
         guard !opened, let damagedFavoritesIndex, let favoriteBytes else { throw Failure.recoveryUnavailable }
         guard try readIndex(indexURL) == damagedFavoritesIndex,
               try readIndex(favoritesURL) == favoriteBytes else { throw Failure.changedOnDisk }
+        try archiveFavoritesFile()
+        invalidate()
+    }
+
+    private func archiveFavoritesFile() throws {
         let archive = root.appendingPathComponent(".favorite-changes.damaged-\(UUID().uuidString).json")
         try fm.moveItem(at: favoritesURL, to: archive)
-        invalidate()
     }
 
     func setFavorite(_ value: Bool, id: UUID, in index: LibraryIndex) throws -> LibraryIndex {
@@ -222,6 +226,7 @@ actor LibraryRepository {
     /// replace a healthy current index. Missing media blocks restoration.
     func inspectRecovery() throws -> RecoveryReport {
         let candidate = try recoveryCandidate()
+        _ = try prepareRecoveryFavorites(for: candidate.backup)
         return try recoveryReport(for: candidate.tracks, names: candidate.names)
     }
 
@@ -261,6 +266,17 @@ actor LibraryRepository {
                               unreferencedFiles: unreferenced)
     }
 
+    /// A damaged overlay can be archived on confirmation. Unknown formats and unsafe paths block recovery.
+    private func prepareRecoveryFavorites(for backup: Data) throws -> Bool {
+        do {
+            try loadFavoriteChanges(for: backup)
+            return false
+        } catch Failure.damagedFavorites {
+            changes = nil
+            return true
+        }
+    }
+
     func restorePreviousIndex() throws -> [Track] {
         // Verify the exact candidate that will be written, not a second read
         // of the backup that may have changed since inspection.
@@ -269,19 +285,21 @@ actor LibraryRepository {
         guard report.missingMedia == 0 else { throw Failure.missingMedia }
         guard report.damagedMedia == 0 else { throw Failure.damagedMedia }
         try Task.checkCancellation()
-        // Preserve corrupt bytes in a unique recovery file before replacing the
-        // index. The backup is not consumed and unknown files remain untouched.
+        let archiveOverlay = try prepareRecoveryFavorites(for: candidate.backup)
+        let restored = changes?.applying(to: candidate.tracks) ?? candidate.tracks
+        let bytes = try encode(restored, generation: favoriteBytes == nil ? nil : UUID())
+        let current = exists(indexURL) ? try readIndex(indexURL) : nil
+        let overlay = exists(favoritesURL) ? try readIndex(favoritesURL) : nil
+        guard current == candidate.damaged, overlay == favoriteBytes,
+              try readIndex(backupURL) == candidate.backup else { throw Failure.changedOnDisk }
         if let damaged = candidate.damaged {
             let archive = root.appendingPathComponent("library.damaged-\(UUID().uuidString).json")
             try damaged.write(to: archive, options: .atomic)
         }
-        let current = exists(indexURL) ? try readIndex(indexURL) : nil
-        guard current == candidate.damaged,
-              try readIndex(backupURL) == candidate.backup else { throw Failure.changedOnDisk }
-        // Read and validate the sidecar before replacing a damaged index.
-        try loadFavoriteChanges(for: candidate.backup)
-        let restored = changes?.applying(to: candidate.tracks) ?? candidate.tracks
-        let bytes = try encode(restored, generation: favoriteBytes == nil ? nil : UUID())
+        if archiveOverlay {
+            try archiveFavoritesFile()
+            favoriteBytes = nil
+        }
         try bytes.write(to: indexURL, options: .atomic)
         accept(bytes, names: candidate.names)
         changes = nil

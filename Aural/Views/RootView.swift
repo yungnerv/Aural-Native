@@ -41,7 +41,7 @@ struct RootView: View {
         .confirmationDialog("Restore previous library index?", isPresented: $confirmRecovery, titleVisibility: .visible) {
             Button("Restore previous index") { store.restoreLibrary() }
             Button("Cancel", role: .cancel) {}
-        } message: { Text("The current damaged index will be preserved. The previous index may omit recent library changes. No audio files will be deleted.") }
+        } message: { Text("The damaged index and any damaged favorites file will be preserved. The previous index may omit recent library changes. No audio files will be deleted.") }
         .alert("Aural", isPresented: Binding(get: { store.message != nil }, set: { if !$0 { store.message = nil } })) { Button("OK") { store.message = nil } } message: { Text(store.message ?? "") }
     }
     /// One stable mini-player host in the selected navigation tab, on both

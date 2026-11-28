@@ -91,7 +91,7 @@ import OSLog
         engine.onSeek = { [weak self] in self?.updateSystem() }
         system = NowPlayingController(
             play: { [weak self] in self?.resume() },
-            pause: { [weak self] in self?.engine.pause() },
+            pause: { [weak self] in self?.pause() },
             next: { [weak self] in self?.advance(1) },
             previous: { [weak self] in self?.advance(-1) },
             seek: { [weak self] in self?.seek($0) }
@@ -351,14 +351,19 @@ import OSLog
         }
     }
 
+    private func pause() {
+        selectionTask?.cancel()
+        engine.pause()
+    }
+
     func resume() {
+        selectionTask?.cancel()
         guard libraryReady, currentID != nil else { return }
         do { try engine.resume() } catch { message = error.localizedDescription }
     }
 
     func toggle() {
-        selectionTask?.cancel()
-        if engine.wantsPlayback { engine.pause() } else { resume() }
+        if engine.wantsPlayback { pause() } else { resume() }
     }
 
     func seek(_ seconds: Double) {
