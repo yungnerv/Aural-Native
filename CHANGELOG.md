@@ -2,7 +2,7 @@
 
 ## 0.3.15 — Favorites recovery and search cleanup
 - Offer explicit recovery when recent favorites are damaged but the catalog is healthy. Preserve the damaged file and refuse unknown favorites formats.
-- Simplify cancellation of background searches, remove redundant artwork clipping and require all ten simulator captures per device.
+- Simplify cancellation of background searches, remove redundant artwork clipping and verify all ten simulator captures by name. Wait for landscape layout and capture the full simulator display.
 
 ## 0.3.14 — Playback artwork and simulator diagnostics
 - Allow the system to request Now Playing artwork off the main actor. Scope iPhone tab queries to the native tab bar and preserve the original failure when the app exits.

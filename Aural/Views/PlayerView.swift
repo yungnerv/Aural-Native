@@ -59,7 +59,6 @@ struct PlayerView: View {
     private func artwork(_ track: Track, size: CGFloat) -> some View {
         Cover(url: store.artworkURL(track))
             .frame(width: size, height: size)
-            .accessibilityHidden(true)
     }
 
     private func details(_ track: Track) -> some View {

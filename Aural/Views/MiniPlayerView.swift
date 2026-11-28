@@ -15,7 +15,6 @@ struct MiniPlayerView: View {
                 HStack(spacing: 8) {
                     Cover(url: store.artworkURL(track))
                         .frame(width: 40, height: 40)
-                        .accessibilityHidden(true)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(track.title)

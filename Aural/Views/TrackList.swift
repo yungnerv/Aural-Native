@@ -14,7 +14,6 @@ struct TrackList: View {
                 HStack(spacing: 12) {
                     Cover(url: store.artworkURL(track))
                         .frame(width: 46, height: 46)
-                        .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(track.title)
                             .foregroundStyle(.primary)

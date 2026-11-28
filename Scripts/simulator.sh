@@ -22,12 +22,7 @@ xcodebuild -project Aural.xcodeproj -scheme Aural \
 if [[ "$TEST_STATUS" -eq 0 ]]; then
   xcrun xcresulttool export attachments --path "AuralTests-$FAMILY.xcresult" \
     --output-path "screenshots/$FAMILY"
-  shopt -s nullglob
-  captures=("screenshots/$FAMILY/"*.png)
-  if (( ${#captures[@]} < 10 )); then
-    echo "Expected library, search, settings, landscape and player PNG attachments for $FAMILY" >&2
-    TEST_STATUS=1
-  fi
+  python3 Scripts/check_screenshots.py "screenshots/$FAMILY" || TEST_STATUS=1
 else
   echo "Aural playback diagnostics ($FAMILY):"
   xcrun simctl spawn "$SIMULATOR_ID" log show --last 15m --style compact \
