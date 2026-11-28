@@ -1,0 +1,56 @@
+name: Aural
+options:
+  bundleIdPrefix: local.aural
+  deploymentTarget:
+    iOS: '26.1'
+targets:
+  Aural:
+    type: application
+    platform: iOS
+    sources: [Aural]
+    info:
+      path: AuralInfo.plist
+      properties:
+        CFBundleDisplayName: Aural
+        CFBundleIdentifier: '$(PRODUCT_BUNDLE_IDENTIFIER)'
+        CFBundleShortVersionString: '$(MARKETING_VERSION)'
+        CFBundleVersion: '$(CURRENT_PROJECT_VERSION)'
+        UILaunchScreen: {}
+        UIBackgroundModes: [audio]
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.aural.player
+        MARKETING_VERSION: '0.0.0' # Real version is supplied by Scripts/build.sh
+        CURRENT_PROJECT_VERSION: '1'
+        SWIFT_VERSION: '6.0'
+        SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
+        SWIFT_STRICT_CONCURRENCY: complete
+        TARGETED_DEVICE_FAMILY: '1,2'
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    scheme:
+      gatherCoverageData: true
+      testTargets: [AuralIntegrationTests, AuralUITests]
+  AuralIntegrationTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests/Integration]
+    dependencies:
+      - target: Aural
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: '6.0'
+        SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
+  AuralUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [Tests/UI]
+    dependencies:
+      - target: Aural
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: '6.0'
+        SWIFT_TREAT_WARNINGS_AS_ERRORS: YES

@@ -1,0 +1,17 @@
+.DS_Store
+DerivedData/
+output/
+Aural.xcodeproj/
+AuralInfo.plist
+*.xcuserstate
+*.ipa
+*.p12
+*.mobileprovision
+.build/
+*.xcresult
+
+# Python test and packaging caches
+__pycache__/
+*.py[cod]
+DerivedData-simulator/
+.tools/

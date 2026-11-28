@@ -1,0 +1,194 @@
+import XCTest
+
+final class LaunchTests: XCTestCase {
+    @MainActor
+    func testFreshLaunch() throws {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.staticTexts["No music"].waitForExistence(timeout: 20),
+                      "A fresh simulator should open the empty library without an error")
+        XCTAssertEqual(app.state, .runningForeground)
+        XCTAssertFalse(app.buttons["open-player"].exists, "No player before selecting music")
+    }
+
+    @MainActor
+    func testLaunchPerformance() {
+        let app = XCUIApplication()
+        let options = XCTMeasureOptions()
+        options.iterationCount = 3
+        measure(metrics: [XCTApplicationLaunchMetric()], options: options) {
+            app.launch()
+        }
+        XCTAssertTrue(app.staticTexts["No music"].waitForExistence(timeout: 20))
+    }
+
+    @MainActor
+    func testLibraryScreens() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--aural-ui-fixture"]
+        app.launch()
+        let album = app.buttons["group-Fixture Album"]
+        XCTAssertTrue(album.waitForExistence(timeout: 30))
+        capture(named: "Albums")
+        album.tap()
+        XCTAssertTrue(app.navigationBars["Fixture Album"].waitForExistence(timeout: 10))
+        capture(named: "Album detail")
+        tabButton("Artists", in: app).tap()
+        let artist = app.buttons["group-Fixture Artist"]
+        XCTAssertTrue(artist.waitForExistence(timeout: 10))
+        capture(named: "Artists")
+        artist.tap()
+        XCTAssertTrue(app.navigationBars["Fixture Artist"].waitForExistence(timeout: 10))
+        capture(named: "Artist detail")
+        tabButton("Settings", in: app).tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
+        capture(named: "Settings")
+        tabButton("Songs", in: app).tap()
+        let search = app.searchFields.firstMatch
+        if !search.isHittable {
+            let button = app.buttons["Search"].firstMatch
+            if button.exists { button.tap() }
+        }
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        search.tap()
+        search.typeText("Afterglow")
+        let match = app.buttons["Afterglow, Fixture Artist"]
+        XCTAssertTrue(match.waitForExistence(timeout: 15))
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'track-'")).count, 1)
+        capture(named: "Search results")
+    }
+
+    @MainActor
+    func testNativePlayerPresentation() async throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--aural-ui-fixture"]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Albums"].waitForExistence(timeout: 30))
+        tabButton("Artists", in: app).tap()
+        XCTAssertTrue(app.navigationBars["Artists"].waitForExistence(timeout: 10))
+        let songs = tabButton("Songs", in: app)
+        XCTAssertTrue(songs.waitForExistence(timeout: 30))
+        songs.tap()
+
+        let row = app.buttons["track-1A2B3C4D-0001-4000-8000-000000000001"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        XCTAssertTrue(row.isHittable, "Track row must be tappable")
+        // Exercise whitespace, not only the title/artwork. On iPad this is
+        // precisely where a plain button with an unshaped Spacer can miss.
+        row.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5)).tap()
+        let selection = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "selected == true"), object: row
+        )
+        guard await XCTWaiter.fulfillment(of: [selection], timeout: 15) == .completed else {
+            captureFailure(app, named: "Track Selection Failed")
+            XCTFail("A tap in the trailing portion of the track row must select it")
+            return
+        }
+
+        let open = app.buttons["open-player"]
+        guard open.waitForExistence(timeout: 20) else {
+            captureFailure(app, named: "Missing Mini Player")
+            XCTFail("The native mini-player must be accessible on both iPhone and iPad")
+            return
+        }
+        tabButton("Favorites", in: app).tap()
+        XCTAssertTrue(app.navigationBars["Favorites"].waitForExistence(timeout: 10))
+        XCTAssertTrue(open.waitForExistence(timeout: 10))
+        capture(named: "Favorites")
+        songs.tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        XCTAssertTrue(row.isSelected)
+        capture(named: "Native Library and Mini Player")
+        XCTAssertEqual(app.buttons.matching(identifier: "open-player").count, 1,
+                       "Only one active mini-player must be exposed")
+        XCTAssertGreaterThanOrEqual(open.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(open.frame.height, 44)
+        XCTAssertTrue(open.isHittable, "The mini-player must be onscreen and tappable")
+        XCTAssertEqual(open.value as? String, "Aural Test Track, Fixture Artist")
+        let miniToggle = app.buttons["mini-toggle"]
+        XCTAssertTrue(miniToggle.exists && miniToggle.isHittable, "Mini-player transport must be available")
+        XCTAssertEqual(miniToggle.label, "Pause")
+        open.tap()
+
+        let title = app.staticTexts["player-track-title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 15))
+        XCTAssertEqual(title.label, "Aural Test Track")
+
+        let toggle = app.buttons["player-toggle"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10))
+        XCTAssertEqual(toggle.label, "Pause", "Selecting a track must start playback intent")
+        toggle.tap()
+        XCTAssertEqual(toggle.label, "Play")
+        capture(named: "Native Now Playing")
+
+        let position = app.sliders["Playback position"]
+        XCTAssertTrue(position.exists)
+        XCTAssertTrue((position.value as? String)?.contains(" of ") == true,
+                      "The scrubber must announce elapsed and total time")
+
+        let close = app.buttons["close-player"]
+        XCTAssertTrue(close.waitForExistence(timeout: 10))
+        close.tap()
+        XCTAssertTrue(open.waitForExistence(timeout: 15))
+        XCTAssertTrue(open.isHittable)
+        XCTAssertEqual(miniToggle.label, "Play", "Paused state must be shared between both presentations")
+        XCTAssertTrue(miniToggle.isHittable)
+        miniToggle.tap()
+        XCTAssertEqual(miniToggle.label, "Pause", "Mini-player must directly resume playback")
+        miniToggle.tap()
+        XCTAssertEqual(miniToggle.label, "Play", "Mini-player must directly pause playback")
+        XCTAssertTrue(open.isHittable, "Transport must not obstruct the player button")
+        open.tap()
+        XCTAssertTrue(title.waitForExistence(timeout: 15))
+        XCTAssertEqual(toggle.label, "Play", "Reopened player must preserve the paused state")
+        close.tap()
+        XCTAssertTrue(open.waitForExistence(timeout: 15))
+        XCTAssertTrue(open.isHittable)
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let window = app.windows.firstMatch
+        let deadline = ContinuousClock.now + .seconds(15)
+        while window.frame.width <= window.frame.height, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(150))
+        }
+        XCTAssertGreaterThan(window.frame.width, window.frame.height, "Expected landscape window")
+        XCTAssertTrue(open.waitForExistence(timeout: 15))
+        XCTAssertTrue(window.frame.contains(open.frame), "Mini-player must fit inside the rotated window")
+        XCTAssertTrue(open.isHittable)
+        capture(named: "Landscape library")
+    }
+
+    @MainActor
+    private func tabButton(_ name: String, in app: XCUIApplication) -> XCUIElement {
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            return app.tabBars.buttons[name].firstMatch
+        }
+        return app.buttons[name].firstMatch
+    }
+
+    @MainActor
+    private func captureFailure(_ app: XCUIApplication, named name: String) {
+        guard app.state == .runningForeground else {
+            XCTFail("Application left foreground during \(name) (state \(app.state.rawValue))")
+            return
+        }
+        capture(named: name)
+        let diagnostic = XCTAttachment(string: app.debugDescription)
+        diagnostic.name = "\(name) — accessibility hierarchy"
+        diagnostic.lifetime = .keepAlways
+        add(diagnostic)
+        print("UI failure hierarchy: \(app.debugDescription)")
+        if app.alerts.firstMatch.exists {
+            print("Visible application alert: \(app.alerts.firstMatch.debugDescription)")
+        }
+    }
+
+    @MainActor
+    private func capture(named name: String) {
+        let attachment = XCTAttachment(data: XCUIScreen.main.screenshot().pngRepresentation, uniformTypeIdentifier: "public.png")
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+}
