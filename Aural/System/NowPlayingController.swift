@@ -68,7 +68,7 @@ import UIKit
                 artworkTask = Task { [weak self] in
                     let image = await ArtworkCache.shared.image(at: artworkURL, maxPixelSize: 512)
                     guard !Task.isCancelled, let self, self.trackID == track.id, let image else { return }
-                    self.artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                    self.artwork = MPMediaItemArtwork(boundsSize: image.size) { @Sendable _ in image }
                     self.publish()
                 }
             }

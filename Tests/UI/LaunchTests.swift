@@ -33,17 +33,17 @@ final class LaunchTests: XCTestCase {
         album.tap()
         XCTAssertTrue(app.navigationBars["Fixture Album"].waitForExistence(timeout: 10))
         capture(app, named: "Album detail")
-        app.buttons["Artists"].firstMatch.tap()
+        tabButton("Artists", in: app).tap()
         let artist = app.buttons["group-Fixture Artist"]
         XCTAssertTrue(artist.waitForExistence(timeout: 10))
         capture(app, named: "Artists")
         artist.tap()
         XCTAssertTrue(app.navigationBars["Fixture Artist"].waitForExistence(timeout: 10))
         capture(app, named: "Artist detail")
-        app.buttons["Settings"].firstMatch.tap()
+        tabButton("Settings", in: app).tap()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
         capture(app, named: "Settings")
-        app.buttons["Songs"].firstMatch.tap()
+        tabButton("Songs", in: app).tap()
         let search = app.searchFields.firstMatch
         if !search.isHittable {
             let button = app.buttons["Search"].firstMatch
@@ -65,9 +65,9 @@ final class LaunchTests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(app.navigationBars["Albums"].waitForExistence(timeout: 30))
-        app.buttons["Artists"].firstMatch.tap()
+        tabButton("Artists", in: app).tap()
         XCTAssertTrue(app.navigationBars["Artists"].waitForExistence(timeout: 10))
-        let songs = app.buttons["Songs"].firstMatch
+        let songs = tabButton("Songs", in: app)
         XCTAssertTrue(songs.waitForExistence(timeout: 30))
         songs.tap()
 
@@ -92,7 +92,7 @@ final class LaunchTests: XCTestCase {
             XCTFail("The native mini-player must be accessible on both iPhone and iPad")
             return
         }
-        app.buttons["Favorites"].firstMatch.tap()
+        tabButton("Favorites", in: app).tap()
         XCTAssertTrue(app.navigationBars["Favorites"].waitForExistence(timeout: 10))
         XCTAssertTrue(open.waitForExistence(timeout: 10))
         capture(app, named: "Favorites")
@@ -153,7 +153,19 @@ final class LaunchTests: XCTestCase {
     }
 
     @MainActor
+    private func tabButton(_ name: String, in app: XCUIApplication) -> XCUIElement {
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            return app.tabBars.buttons[name].firstMatch
+        }
+        return app.buttons[name].firstMatch
+    }
+
+    @MainActor
     private func captureFailure(_ app: XCUIApplication, named name: String) {
+        guard app.state == .runningForeground else {
+            XCTFail("Application left foreground during \(name) (state \(app.state.rawValue))")
+            return
+        }
         capture(app, named: name)
         let diagnostic = XCTAttachment(string: app.debugDescription)
         diagnostic.name = "\(name) — accessibility hierarchy"

@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.14 — Playback artwork and simulator diagnostics
+- Allow the system to request Now Playing artwork off the main actor. Scope iPhone tab queries to the native tab bar and preserve the original failure when the app exits.
+
 ## 0.3.13 — Incremental favorites and library responsiveness
 - Save favorites atomically against the current catalog and update only the affected groups. Prepare selection queues away from the main actor. Show a distinct verification phase when importing legacy libraries.
 - Return consistent full artist and album groups from search. Distinguish explicitly tagged albums from untagged singles on new imports. Expand populated UI captures and isolate simulator families on independent runners.
